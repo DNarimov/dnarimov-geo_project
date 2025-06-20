@@ -3,6 +3,12 @@ from pypdf import PdfReader
 from fpdf import FPDF
 import io
 import os
+import openai
+import streamlit as st
+
+# Загружаем API-ключ из секрета
+openai.api_key = st.secrets["openai_api_key"]
+
 
 # ====== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ======
 def extract_text_from_pdf(pdf_file):
