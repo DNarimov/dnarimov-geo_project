@@ -4,7 +4,6 @@ from fpdf import FPDF
 import io
 import os
 import openai
-import streamlit as st
 
 # Загружаем API-ключ из секрета
 openai.api_key = st.secrets["openai_api_key"]
@@ -48,7 +47,6 @@ def generate_pdf_report(test_name, findings):
     pdf = FPDF()
     pdf.add_page()
 
-    # Путь к шрифту (обязательно должен быть рядом с файлом или указать абсолютный путь)
     font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
     pdf.add_font("DejaVu", "", font_path, uni=True)
     pdf.set_font("DejaVu", size=12)
@@ -61,6 +59,34 @@ def generate_pdf_report(test_name, findings):
     pdf_data = pdf.output(dest='S').encode("utf-8")
     pdf_buffer = io.BytesIO(pdf_data)
     return pdf_buffer
+
+# 🔥 GPT-анализ ASTM
+def ask_gpt_astm_analysis(test_name, extracted_text):
+    prompt = f"""
+    Проверь следующий текст протокола на соответствие стандарту ASTM для теста "{test_name}".
+
+    Укажи:
+    1. Какие ключевые параметры найдены.
+    2. Какие параметры отсутствуют.
+    3. Оценку соответствия отчёта стандарту.
+    4. Рекомендации по улучшению, если нужно.
+
+    Вот текст протокола:
+    \"\"\"
+    {extracted_text}
+    \"\"\"
+    """
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",  # можно заменить на "gpt-3.5-turbo"
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=1000
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"❌ Ошибка при обращении к GPT: {e}"
 
 # ====== ОСНОВНОЙ ИНТЕРФЕЙС ======
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
@@ -97,10 +123,16 @@ for i, test_name in enumerate(test_types):
 
                 findings = display_test_result(test_name, text)
 
-            pdf_file = generate_pdf_report(test_name, findings)
-            st.download_button(
-                label="📄 Скачать PDF отчёт",
-                data=pdf_file,
-                file_name=f"{test_name.replace(' ', '_')}_report.pdf",
-                mime="application/pdf"
-            )
+                # 🔍 GPT-анализ
+                st.subheader("🤖 Анализ ChatGPT по ASTM")
+                gpt_response = ask_gpt_astm_analysis(test_name, text)
+                st.markdown(gpt_response)
+
+                # Скачивание PDF-отчёта (на основе findings)
+                pdf_file = generate_pdf_report(test_name, findings)
+                st.download_button(
+                    label="📄 Скачать PDF отчёт",
+                    data=pdf_file,
+                    file_name=f"{test_name.replace(' ', '_')}_report.pdf",
+                    mime="application/pdf"
+                )
