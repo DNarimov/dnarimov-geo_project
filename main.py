@@ -76,9 +76,6 @@ test_types = [
     "Proctor Test"
 ]
 
-
-
-
 # ====== НАВИГАЦИЯ ПО ВКЛАДКАМ ======
 tabs = st.tabs(test_types)
 
