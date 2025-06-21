@@ -3,9 +3,9 @@ from pypdf import PdfReader
 from fpdf import FPDF
 import io
 import os
-from openai import OpenAI  # Новый импорт
+from openai import OpenAI  # Новый SDK OpenAI
 
-# Загружаем API-ключ
+# Инициализация OpenAI клиента
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
 # Сопоставление тестов со стандартами ASTM
@@ -35,7 +35,7 @@ def display_test_result(test_name, text):
     st.subheader(f"Результаты анализа: {test_name}")
     findings = []
 
-    if any(x in text.lower() for x in ["density", "stress", "moisture", "shear"]):
+    if any(x in text.lower() for x in ["density", "stress", "moisture", "shear", "resistivity", "cb", "strain", "consolidation"]):
         findings.append("✅ Найдены ключевые параметры.")
         st.success(findings[-1])
     else:
@@ -48,9 +48,12 @@ def generate_pdf_report(test_name, findings):
     pdf = FPDF()
     pdf.add_page()
 
-    font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
-    pdf.add_font("DejaVu", "", font_path, uni=True)
-    pdf.set_font("DejaVu", size=12)
+    try:
+        font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
+        pdf.add_font("DejaVu", "", font_path, uni=True)
+        pdf.set_font("DejaVu", size=12)
+    except:
+        pdf.set_font("Arial", size=12)
 
     pdf.cell(200, 10, txt=f"Отчёт по тесту: {test_name}", ln=True)
     pdf.cell(200, 10, txt="", ln=True)
@@ -60,8 +63,8 @@ def generate_pdf_report(test_name, findings):
     pdf_data = pdf.output(dest='S').encode("utf-8")
     return io.BytesIO(pdf_data)
 
-# 🔥 GPT-анализ ASTM
-def ask_gpt_astm_analysis(test_name, extracted_text):
+# GPT-Анализ ASTM
+def ask_gpt_astm_analysis(test_name, extracted_text, model_name):
     standard = astm_standards.get(test_name, "соответствующий ASTM стандарт")
 
     prompt = f"""
@@ -70,7 +73,7 @@ def ask_gpt_astm_analysis(test_name, extracted_text):
     Укажи:
     1. Найденные параметры с числовыми значениями.
     2. Отсутствующие обязательные параметры.
-    3. Оценку соответствия.
+    3. Общую оценку соответствия.
     4. Рекомендации по улучшению.
 
     Текст протокола:
@@ -81,7 +84,7 @@ def ask_gpt_astm_analysis(test_name, extracted_text):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model=model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=1500
@@ -93,7 +96,15 @@ def ask_gpt_astm_analysis(test_name, extracted_text):
 # ====== ИНТЕРФЕЙС STREAMLIT ======
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
 st.title("📊 Geotechnical Test Result Checker")
-st.markdown("Загрузите PDF и выберите тип геотехнического теста для анализа согласно ASTM.")
+st.markdown("Загрузите PDF-файл с лабораторным протоколом и выберите тип теста. GPT проанализирует его соответствие ASTM.")
+
+# Переключатель модели GPT
+model_choice = st.sidebar.selectbox(
+    "🤖 Выберите модель GPT:",
+    ["gpt-4-turbo", "gpt-3.5-turbo"],
+    index=0,
+    help="GPT-4 точнее, GPT-3.5 дешевле"
+)
 
 test_types = list(astm_standards.keys())
 tabs = st.tabs(test_types)
@@ -104,14 +115,14 @@ for i, test_name in enumerate(test_types):
         uploaded_file = st.file_uploader(f"Загрузите PDF для {test_name}", type="pdf", key=test_name)
 
         if uploaded_file:
-            with st.spinner("Извлечение данных из PDF..."):
+            with st.spinner("Извлечение текста из PDF..."):
                 text = extract_text_from_pdf(uploaded_file)
-                st.success("✅ PDF успешно загружен и обработан.")
+                st.success("✅ PDF успешно обработан.")
 
                 findings = display_test_result(test_name, text)
 
-                st.subheader("🤖 Анализ ChatGPT по ASTM")
-                gpt_response = ask_gpt_astm_analysis(test_name, text)
+                st.subheader("🤖 Анализ GPT по ASTM")
+                gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice)
                 st.markdown(gpt_response)
 
                 pdf_file = generate_pdf_report(test_name, findings)
