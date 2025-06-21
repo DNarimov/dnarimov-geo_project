@@ -3,10 +3,10 @@ from pypdf import PdfReader
 from fpdf import FPDF
 import io
 import os
-import openai
+from openai import OpenAI  # Новый импорт
 
-# Загружаем API-ключ из Streamlit Secrets
-openai.api_key = st.secrets["openai_api_key"]
+# Загружаем API-ключ
+client = OpenAI(api_key=st.secrets["openai_api_key"])
 
 # Сопоставление тестов со стандартами ASTM
 astm_standards = {
@@ -35,12 +35,11 @@ def display_test_result(test_name, text):
     st.subheader(f"Результаты анализа: {test_name}")
     findings = []
 
-    # Простая проверка ключевых слов (можно расширить)
-    if "density" in text.lower() or "stress" in text.lower() or "moisture" in text.lower():
-        findings.append("✅ Найдены ключевые параметры в протоколе.")
+    if any(x in text.lower() for x in ["density", "stress", "moisture", "shear"]):
+        findings.append("✅ Найдены ключевые параметры.")
         st.success(findings[-1])
     else:
-        findings.append("⚠ Внимание: Не удалось найти ключевые параметры. GPT поможет уточнить.")
+        findings.append("⚠ Внимание: Не найдены параметры. GPT поможет с анализом.")
         st.warning(findings[-1])
 
     return findings
@@ -56,24 +55,23 @@ def generate_pdf_report(test_name, findings):
     pdf.cell(200, 10, txt=f"Отчёт по тесту: {test_name}", ln=True)
     pdf.cell(200, 10, txt="", ln=True)
     for item in findings:
-        pdf.multi_cell(0, 10, txt=item)
+        pdf.multi_cell(0, 10, txt=str(item))  # безопасный вывод
 
     pdf_data = pdf.output(dest='S').encode("utf-8")
-    pdf_buffer = io.BytesIO(pdf_data)
-    return pdf_buffer
+    return io.BytesIO(pdf_data)
 
 # 🔥 GPT-анализ ASTM
 def ask_gpt_astm_analysis(test_name, extracted_text):
     standard = astm_standards.get(test_name, "соответствующий ASTM стандарт")
 
     prompt = f"""
-    Проанализируй приведённый ниже протокол на соответствие стандарту **{standard}** для геотехнического теста **{test_name}**.
+    Проанализируй текст протокола на соответствие стандарту **{standard}** для теста **{test_name}**.
 
     Укажи:
-    1. Какие ключевые параметры были найдены в тексте (желательно с числовыми значениями).
-    2. Какие параметры отсутствуют, но требуются стандартом.
-    3. Общую оценку соответствия отчёта стандарту.
-    4. Рекомендации по улучшению протокола, если необходимо.
+    1. Найденные параметры с числовыми значениями.
+    2. Отсутствующие обязательные параметры.
+    3. Оценку соответствия.
+    4. Рекомендации по улучшению.
 
     Текст протокола:
     \"\"\"
@@ -82,7 +80,7 @@ def ask_gpt_astm_analysis(test_name, extracted_text):
     """
 
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
@@ -92,15 +90,12 @@ def ask_gpt_astm_analysis(test_name, extracted_text):
     except Exception as e:
         return f"❌ Ошибка при обращении к GPT: {e}"
 
-# ====== ОСНОВНОЙ ИНТЕРФЕЙС ======
+# ====== ИНТЕРФЕЙС STREAMLIT ======
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
 st.title("📊 Geotechnical Test Result Checker")
-st.markdown("Загрузите PDF-файл и выберите тип теста для анализа. GPT проверит соответствие ASTM стандарту.")
+st.markdown("Загрузите PDF и выберите тип геотехнического теста для анализа согласно ASTM.")
 
-# Список тестов
 test_types = list(astm_standards.keys())
-
-# ====== НАВИГАЦИЯ ПО ВКЛАДКАМ ======
 tabs = st.tabs(test_types)
 
 for i, test_name in enumerate(test_types):
@@ -111,15 +106,14 @@ for i, test_name in enumerate(test_types):
         if uploaded_file:
             with st.spinner("Извлечение данных из PDF..."):
                 text = extract_text_from_pdf(uploaded_file)
-                st.success("✅ PDF успешно загружен и прочитан.")
+                st.success("✅ PDF успешно загружен и обработан.")
 
                 findings = display_test_result(test_name, text)
 
-                st.subheader("🤖 GPT-анализ по ASTM")
+                st.subheader("🤖 Анализ ChatGPT по ASTM")
                 gpt_response = ask_gpt_astm_analysis(test_name, text)
                 st.markdown(gpt_response)
 
-                # Скачивание PDF-отчёта
                 pdf_file = generate_pdf_report(test_name, findings)
                 st.download_button(
                     label="📄 Скачать PDF отчёт",
