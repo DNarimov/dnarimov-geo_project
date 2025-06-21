@@ -3,12 +3,12 @@ from pypdf import PdfReader
 from fpdf import FPDF
 import io
 import os
-from openai import OpenAI  # Новый SDK OpenAI
+from openai import OpenAI
 
-# Инициализация OpenAI клиента
+# OpenAI client с безопасным ключом
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
-# Сопоставление тестов со стандартами ASTM
+# ASTM стандарты
 astm_standards = {
     "Electrical Resistivity Test (ERT)": "ASTM G57",
     "Seismic Refraction Test (SRT)": "ASTM D5777",
@@ -23,14 +23,17 @@ astm_standards = {
     "Proctor Test": "ASTM D698"
 }
 
-# ====== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ======
-def extract_text_from_pdf(pdf_file):
+# === Текст из PDF (с ограничением длины) ===
+def extract_text_from_pdf(pdf_file, max_chars=10000):
     reader = PdfReader(pdf_file)
     text = ""
     for page in reader.pages:
         text += page.extract_text() or ""
-    return text
+        if len(text) > max_chars:
+            break
+    return text[:max_chars]
 
+# === Вывод первичного анализа ===
 def display_test_result(test_name, text):
     st.subheader(f"Результаты анализа: {test_name}")
     findings = []
@@ -44,6 +47,7 @@ def display_test_result(test_name, text):
 
     return findings
 
+# === PDF отчёт ===
 def generate_pdf_report(test_name, findings):
     pdf = FPDF()
     pdf.add_page()
@@ -57,13 +61,17 @@ def generate_pdf_report(test_name, findings):
 
     pdf.cell(200, 10, txt=f"Отчёт по тесту: {test_name}", ln=True)
     pdf.cell(200, 10, txt="", ln=True)
+
+    if not isinstance(findings, list):
+        findings = [str(findings)]
+
     for item in findings:
-        pdf.multi_cell(0, 10, txt=str(item))  # безопасный вывод
+        pdf.multi_cell(0, 10, txt=str(item))
 
     pdf_data = pdf.output(dest='S').encode("utf-8")
     return io.BytesIO(pdf_data)
 
-# GPT-Анализ ASTM
+# === GPT-анализ ===
 def ask_gpt_astm_analysis(test_name, extracted_text, model_name):
     standard = astm_standards.get(test_name, "соответствующий ASTM стандарт")
 
@@ -93,19 +101,20 @@ def ask_gpt_astm_analysis(test_name, extracted_text, model_name):
     except Exception as e:
         return f"❌ Ошибка при обращении к GPT: {e}"
 
-# ====== ИНТЕРФЕЙС STREAMLIT ======
+# === Streamlit UI ===
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
 st.title("📊 Geotechnical Test Result Checker")
-st.markdown("Загрузите PDF-файл с лабораторным протоколом и выберите тип теста. GPT проанализирует его соответствие ASTM.")
+st.markdown("Загрузите PDF-файл лабораторного протокола и выберите тип теста. GPT проверит его соответствие ASTM.")
 
-# Переключатель модели GPT
+# 🔘 Выбор модели
 model_choice = st.sidebar.selectbox(
     "🤖 Выберите модель GPT:",
     ["gpt-4-turbo", "gpt-3.5-turbo"],
     index=0,
-    help="GPT-4 точнее, GPT-3.5 дешевле"
+    help="GPT-4 точнее, GPT-3.5 быстрее и дешевле"
 )
 
+# Tabs
 test_types = list(astm_standards.keys())
 tabs = st.tabs(test_types)
 
@@ -115,16 +124,17 @@ for i, test_name in enumerate(test_types):
         uploaded_file = st.file_uploader(f"Загрузите PDF для {test_name}", type="pdf", key=test_name)
 
         if uploaded_file:
-            with st.spinner("Извлечение текста из PDF..."):
+            with st.spinner("📄 Обработка PDF..."):
                 text = extract_text_from_pdf(uploaded_file)
-                st.success("✅ PDF успешно обработан.")
+                st.success("✅ PDF успешно загружен и обработан.")
 
-                findings = display_test_result(test_name, text)
+            findings = display_test_result(test_name, text)
 
-                st.subheader("🤖 Анализ GPT по ASTM")
-                gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice)
-                st.markdown(gpt_response)
+            st.subheader("🤖 Анализ JURU AI")
+            gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice)
+            st.markdown(gpt_response)
 
+            if findings:
                 pdf_file = generate_pdf_report(test_name, findings)
                 st.download_button(
                     label="📄 Скачать PDF отчёт",
