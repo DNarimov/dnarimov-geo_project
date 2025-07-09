@@ -38,20 +38,20 @@ def extract_text_from_pdf(pdf_file, max_chars=10000):
 def ask_gpt_astm_analysis(test_name, extracted_text, model_name, language_code):
     standard = astm_standards.get(test_name, "соответствующий ASTM стандарт")
 
-    prompt = f"""
-    You are a technical assistant. In short, clear bullet points, analyze the lab report for **{test_name}**, according to **{standard}**.
+    prompt = f'''
+You are a technical assistant. In short, clear bullet points, analyze the lab report for **{test_name}**, according to **{standard}**.
 
-    Respond in language: {language_code.upper()}.
+Respond in language: {language_code.upper()}.
 
-    Output format (no intro or extra text):
-    - Found parameters (with units and values)
-    - Missing parameters
-    - Compliance assessment
-    - Short recommendations
+Output format (no intro or extra text):
+- Found parameters (with units and values)
+- Missing parameters
+- Compliance assessment
+- Short recommendations
 
-    Report text:
-    """{extracted_text}"""
-    """
+Report text:
+"""{extracted_text}"""
+'''
 
     try:
         response = client.chat.completions.create(
