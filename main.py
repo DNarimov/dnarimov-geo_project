@@ -98,7 +98,7 @@ st.title("📊 Geotechnical Test Result Checker")
 st.markdown("Загрузите PDF-файл лабораторного протокола и выберите тип теста. GPT проверит его соответствие ASTM.")
 
 # Язык
-lang = st.sidebar.selectbox("🌐 Выберите язык:", ["Русский", "O'zbek", "English"])
+lang = st.selectbox("🌐 Выберите язык:", ["Русский", "O'zbek", "English"])
 lang_codes = {"Русский": "ru", "O'zbek": "uz", "English": "en"}
 language_code = lang_codes[lang]
 
