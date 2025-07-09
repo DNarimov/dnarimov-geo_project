@@ -39,17 +39,15 @@ def ask_gpt_astm_analysis(test_name, extracted_text, model_name, language_code):
     standard = astm_standards.get(test_name, "соответствующий ASTM стандарт")
 
     prompt = f'''
-You are a technical assistant. In short, clear bullet points, analyze the lab report for **{test_name}**, according to **{standard}**.
-
+You are a technical assistant. In short, structured table format, analyze the lab report for "{test_name}" according to "{standard}".
 Respond in language: {language_code.upper()}.
+Return data in 4 columns:
+1. Serial Number
+2. Missing required parameters or criteria (if any)
+3. Available parameter names
+4. Soil corrosion aggressiveness (weak, medium, strong) — auto classify based on values (if values are available)
 
-Output format (no intro or extra text):
-- Found parameters (with units and values)
-- Missing parameters
-- Compliance assessment
-- Short recommendations
-
-Report text:
+Report:
 """{extracted_text}"""
 '''
 
@@ -58,7 +56,7 @@ Report text:
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=1000
+            max_tokens=1200
         )
         return response.choices[0].message.content
     except Exception as e:
@@ -66,9 +64,15 @@ Report text:
 
 # === Парсинг ответа GPT в таблицу ===
 def gpt_response_to_table(response):
-    sections = [s.strip("- ").split(":") if ":" in s else [s.strip("- "), ""]
-                for s in response.strip().split("\n") if s.strip()]
-    df = pd.DataFrame(sections, columns=["Category", "Detail"])
+    lines = [line for line in response.strip().split("\n") if line.strip()]
+    data = []
+    for i, line in enumerate(lines, start=1):
+        parts = line.strip("- ").split("|")
+        if len(parts) >= 4:
+            data.append([str(i), parts[1].strip(), parts[2].strip(), parts[3].strip()])
+        elif len(parts) == 3:
+            data.append([str(i), parts[0].strip(), parts[1].strip(), parts[2].strip()])
+    df = pd.DataFrame(data, columns=["№ п/п", "Отсутствующие параметры / критерии", "Имеющиеся данные", "Коррозионная агрессивность"])
     return df
 
 # === PDF отчёт ===
@@ -86,7 +90,8 @@ def generate_pdf_report(test_name, findings_table):
     pdf.cell(200, 10, txt=f"Отчёт по тесту: {test_name}", ln=True)
 
     for index, row in findings_table.iterrows():
-        pdf.multi_cell(0, 10, txt=f"{row['Category']}: {row['Detail']}")
+        row_text = f"{row['№ п/п']}. {row['Имеющиеся данные']} | {row['Отсутствующие параметры / критерии']} | {row['Коррозионная агрессивность']}"
+        pdf.multi_cell(0, 10, txt=row_text)
 
     pdf_data = pdf.output(dest='S').encode("utf-8")
     return io.BytesIO(pdf_data)
@@ -95,20 +100,21 @@ def generate_pdf_report(test_name, findings_table):
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
 st.title("📊 Geotechnical Test Result Checker")
 
-st.markdown("Загрузите PDF-файл лабораторного протокола и выберите тип теста. GPT проверит его соответствие ASTM.")
-
-# Язык
-lang = st.selectbox("🌐 Выберите язык:", ["Русский", "O'zbek", "English"])
+# Язык - иконка и pop-up
+with st.expander("🌐 Выбор языка"):
+    lang = st.selectbox("Выберите язык:", ["Русский", "O'zbek", "English"])
 lang_codes = {"Русский": "ru", "O'zbek": "uz", "English": "en"}
 language_code = lang_codes[lang]
 
 # Модель GPT
-model_choice = st.sidebar.selectbox(
-    "🤖 Выберите модель GPT:",
+model_choice = st.selectbox(
+    "🤖 Выберите модель JURU AI:",
     ["gpt-4-turbo", "gpt-3.5-turbo"],
     index=0,
     help="GPT-4 точнее, GPT-3.5 быстрее и дешевле"
 )
+
+st.markdown("Загрузите PDF-файл лабораторного протокола и выберите тип теста. GPT проверит его соответствие ASTM и покажет таблицу с анализом.")
 
 # Tabs по типам тестов
 test_types = list(astm_standards.keys())
