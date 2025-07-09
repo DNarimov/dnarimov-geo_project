@@ -1,11 +1,12 @@
 import streamlit as st
 from pypdf import PdfReader
 from fpdf import FPDF
+import pandas as pd
 import io
 import os
 from openai import OpenAI
 
-# OpenAI client с безопасным ключом
+# OpenAI client
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
 # ASTM стандарты
@@ -23,7 +24,7 @@ astm_standards = {
     "Proctor Test": "ASTM D698"
 }
 
-# === Текст из PDF (с ограничением длины) ===
+# === Извлечение текста из PDF ===
 def extract_text_from_pdf(pdf_file, max_chars=10000):
     reader = PdfReader(pdf_file)
     text = ""
@@ -33,61 +34,23 @@ def extract_text_from_pdf(pdf_file, max_chars=10000):
             break
     return text[:max_chars]
 
-# === Вывод первичного анализа ===
-def display_test_result(test_name, text):
-    st.subheader(f"Результаты анализа: {test_name}")
-    findings = []
-
-    if any(x in text.lower() for x in ["density", "stress", "moisture", "shear", "resistivity", "cb", "strain", "consolidation"]):
-        findings.append("✅ Найдены ключевые параметры.")
-        st.success(findings[-1])
-    else:
-        findings.append("⚠ Внимание: Не найдены параметры. GPT поможет с анализом.")
-        st.warning(findings[-1])
-
-    return findings
-
-# === PDF отчёт ===
-def generate_pdf_report(test_name, findings):
-    pdf = FPDF()
-    pdf.add_page()
-
-    try:
-        font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
-        pdf.add_font("DejaVu", "", font_path, uni=True)
-        pdf.set_font("DejaVu", size=12)
-    except:
-        pdf.set_font("Arial", size=12)
-
-    pdf.cell(200, 10, txt=f"Отчёт по тесту: {test_name}", ln=True)
-    pdf.cell(200, 10, txt="", ln=True)
-
-    if not isinstance(findings, list):
-        findings = [str(findings)]
-
-    for item in findings:
-        pdf.multi_cell(0, 10, txt=str(item))
-
-    pdf_data = pdf.output(dest='S').encode("utf-8")
-    return io.BytesIO(pdf_data)
-
-# === GPT-анализ ===
-def ask_gpt_astm_analysis(test_name, extracted_text, model_name):
+# === GPT анализ ASTM ===
+def ask_gpt_astm_analysis(test_name, extracted_text, model_name, language_code):
     standard = astm_standards.get(test_name, "соответствующий ASTM стандарт")
 
     prompt = f"""
-    Проанализируй текст протокола на соответствие стандарту **{standard}** для теста **{test_name}**.
+    You are a technical assistant. In short, clear bullet points, analyze the lab report for **{test_name}**, according to **{standard}**.
 
-    Укажи:
-    1. Найденные параметры с числовыми значениями.
-    2. Отсутствующие обязательные параметры.
-    3. Общую оценку соответствия.
-    4. Рекомендации по улучшению.
+    Respond in language: {language_code.upper()}.
 
-    Текст протокола:
-    \"\"\"
-    {extracted_text}
-    \"\"\"
+    Output format (no intro or extra text):
+    - Found parameters (with units and values)
+    - Missing parameters
+    - Compliance assessment
+    - Short recommendations
+
+    Report text:
+    """{extracted_text}"""
     """
 
     try:
@@ -95,18 +58,51 @@ def ask_gpt_astm_analysis(test_name, extracted_text, model_name):
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=1500
+            max_tokens=1000
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"❌ Ошибка при обращении к GPT: {e}"
+        return f"❌ GPT error: {e}"
 
-# === Streamlit UI ===
+# === Парсинг ответа GPT в таблицу ===
+def gpt_response_to_table(response):
+    sections = [s.strip("- ").split(":") if ":" in s else [s.strip("- "), ""]
+                for s in response.strip().split("\n") if s.strip()]
+    df = pd.DataFrame(sections, columns=["Category", "Detail"])
+    return df
+
+# === PDF отчёт ===
+def generate_pdf_report(test_name, findings_table):
+    pdf = FPDF()
+    pdf.add_page()
+
+    try:
+        font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
+        pdf.add_font("DejaVu", "", font_path, uni=True)
+        pdf.set_font("DejaVu", size=10)
+    except:
+        pdf.set_font("Arial", size=10)
+
+    pdf.cell(200, 10, txt=f"Отчёт по тесту: {test_name}", ln=True)
+
+    for index, row in findings_table.iterrows():
+        pdf.multi_cell(0, 10, txt=f"{row['Category']}: {row['Detail']}")
+
+    pdf_data = pdf.output(dest='S').encode("utf-8")
+    return io.BytesIO(pdf_data)
+
+# === Интерфейс Streamlit ===
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
 st.title("📊 Geotechnical Test Result Checker")
+
 st.markdown("Загрузите PDF-файл лабораторного протокола и выберите тип теста. GPT проверит его соответствие ASTM.")
 
-# 🔘 Выбор модели
+# Язык
+lang = st.sidebar.selectbox("🌐 Выберите язык:", ["Русский", "O'zbek", "English"])
+lang_codes = {"Русский": "ru", "O'zbek": "uz", "English": "en"}
+language_code = lang_codes[lang]
+
+# Модель GPT
 model_choice = st.sidebar.selectbox(
     "🤖 Выберите модель GPT:",
     ["gpt-4-turbo", "gpt-3.5-turbo"],
@@ -114,7 +110,7 @@ model_choice = st.sidebar.selectbox(
     help="GPT-4 точнее, GPT-3.5 быстрее и дешевле"
 )
 
-# Tabs
+# Tabs по типам тестов
 test_types = list(astm_standards.keys())
 tabs = st.tabs(test_types)
 
@@ -128,17 +124,30 @@ for i, test_name in enumerate(test_types):
                 text = extract_text_from_pdf(uploaded_file)
                 st.success("✅ PDF успешно загружен и обработан.")
 
-            findings = display_test_result(test_name, text)
-
             st.subheader("🤖 Анализ JURU AI")
-            gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice)
+            gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice, language_code)
             st.markdown(gpt_response)
 
-            if findings:
-                pdf_file = generate_pdf_report(test_name, findings)
-                st.download_button(
-                    label="📄 Скачать PDF отчёт",
-                    data=pdf_file,
-                    file_name=f"{test_name.replace(' ', '_')}_report.pdf",
-                    mime="application/pdf"
-                )
+            df_result = gpt_response_to_table(gpt_response)
+            st.dataframe(df_result)
+
+            # Excel download
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                df_result.to_excel(writer, index=False, sheet_name='GPT Analysis')
+
+            st.download_button(
+                label="📊 Скачать Excel отчёт",
+                data=excel_buffer,
+                file_name=f"{test_name.replace(' ', '_')}_GPT_Report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+            # PDF download
+            pdf_file = generate_pdf_report(test_name, df_result)
+            st.download_button(
+                label="📄 Скачать PDF отчёт",
+                data=pdf_file,
+                file_name=f"{test_name.replace(' ', '_')}_GPT_Report.pdf",
+                mime="application/pdf"
+            )
