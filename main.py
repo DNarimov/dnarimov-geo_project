@@ -73,13 +73,12 @@ def ask_gpt_astm_analysis(test_name, extracted_text, model_name, language_code):
     prompt = f'''
 You are a technical assistant. Extract and present tabular lab data for the "{test_name}" test from the report below.
 Focus on columns:
-1. № п/п
-2. № Выработки
-3. Расстояние между электродами, а (м)
-4. Показание прибора R (Ом)
-5. Удельное сопротивление ρ = 2πRa (Ом·м)
-6. Коррозионная агрессивность по NACE
-7. Коррозионная активность по ASTM
+1. № Выработки
+2. Расстояние между электродами, а (м)
+3. Показание прибора R (Ом)
+4. Удельное сопротивление ρ = 2πRa (Ом·м)
+5. Коррозионная агрессивность по NACE
+6. Коррозионная активность по ASTM
 If some values are missing, calculate where possible or write "-".
 Return only clean table. Use language: {language_code.upper()}.
 
@@ -112,7 +111,6 @@ def gpt_response_to_table(response):
             nace, astm = classify_corrosion(resistivity_val)
             data.append([number, well_no, a_val, r_val, resistivity_val, nace, astm])
     df = pd.DataFrame(data, columns=[
-        "№ п/п",
         "№ Выработки",
         "Расстояние между электродами а, (м)",
         "Показание прибора R, (Ом)",
@@ -131,7 +129,10 @@ def style_table(df):
 def generate_pdf_report(test_name, findings_table):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=10)
+    font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
+pdf.add_font("DejaVu", "", font_path, uni=True)
+pdf.set_font("DejaVu", size=10)
+
 
     pdf.cell(200, 10, txt=f"Отчёт по тесту: {test_name}", ln=True)
     pdf.ln(5)
