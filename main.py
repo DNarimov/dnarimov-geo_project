@@ -156,15 +156,16 @@ st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
 st.title("Geotechnical Test Result Checker")
 
 with st.expander("🌐 Выбор языка"):
-    lang = st.selectbox("Выберите язык:", ["Русский", "O'zbek", "English"])
+    lang = st.sidebar.selectbox("🌐 Выберите язык:", ["Русский", "O'zbek", "English"])
 lang_codes = {"Русский": "ru", "O'zbek": "uz", "English": "en"}
 language_code = lang_codes[lang]
 
-model_choice = st.selectbox(
+model_choice = st.sidebar.selectbox(
     "🤖 Выберите модель JURU AI:",
     ["gpt-4-turbo", "gpt-3.5-turbo"],
-    index=0
-)
+    index=0,
+    help="GPT-4 точнее, GPT-3.5 быстрее и дешевле"
+
 
 st.markdown("Загрузите PDF-файл лабораторного протокола и выберите тип теста. GPT проверит его соответствие ASTM и покажет таблицу с анализом.")
 
