@@ -153,7 +153,7 @@ def generate_pdf_report(test_name, findings_table):
 
 # === Интерфейс Streamlit ===
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
-st.title("📊 Geotechnical Test Result Checker")
+st.title("Geotechnical Test Result Checker")
 
 with st.expander("🌐 Выбор языка"):
     lang = st.selectbox("Выберите язык:", ["Русский", "O'zbek", "English"])
@@ -173,7 +173,7 @@ tabs = st.tabs(test_types)
 
 for i, test_name in enumerate(test_types):
     with tabs[i]:
-        st.header(f"🧪 {test_name}")
+        st.header(f" {test_name}")
         uploaded_file = st.file_uploader(f"Загрузите PDF для {test_name}", type="pdf", key=test_name)
 
         if uploaded_file:
