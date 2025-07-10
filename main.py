@@ -1,9 +1,7 @@
 import streamlit as st
 from pypdf import PdfReader
-from fpdf import FPDF
 import pandas as pd
 import io
-import os
 from openai import OpenAI
 from io import BytesIO
 
@@ -81,7 +79,8 @@ Focus on columns:
 6. Коррозионная агрессивность по NACE
 7. Коррозионная активность по ASTM
 If some values are missing, calculate where possible or write "-".
-Return only clean table. Use language: {language_code.upper()}.
+Return ONLY markdown table.
+Language: {language_code.upper()}.
 
 Report:
 """{extracted_text}"""
@@ -99,18 +98,25 @@ Report:
         return f"❌ GPT error: {e}"
 
 def gpt_response_to_table(response):
-    lines = [line for line in response.strip().split("\n") if line.strip() and "№" not in line]
+    st.subheader("📄 Ответ GPT (отладка):")
+    st.code(response, language="markdown")
+
+    lines = [line for line in response.strip().split("\n") if line.strip() and "|" in line and not line.startswith("|")]
     data = []
     for line in lines:
-        parts = line.strip("- ").split("|")
+        parts = line.split("|")
+        parts = [p.strip() for p in parts if p.strip()]
         if len(parts) >= 5:
-            number = parts[0].strip()
-            well_no = parts[1].strip()
-            a_val = parts[2].strip()
-            r_val = parts[3].strip()
-            resistivity_val = parts[4].strip()
-            nace, astm = classify_corrosion(resistivity_val)
-            data.append([number, well_no, a_val, r_val, resistivity_val, nace, astm])
+            try:
+                number = parts[0]
+                well_no = parts[1]
+                a_val = parts[2]
+                r_val = parts[3]
+                resistivity_val = parts[4]
+                nace, astm = classify_corrosion(resistivity_val)
+                data.append([number, well_no, a_val, r_val, resistivity_val, nace, astm])
+            except:
+                continue
     df = pd.DataFrame(data, columns=[
         "№ п/п",
         "№ Выработки",
@@ -121,12 +127,11 @@ def gpt_response_to_table(response):
         "Коррозионная активность по ASTM"
     ])
     return df
- def style_table(df):
+
+def style_table(df):
     def nace_color(val):
         return f"background-color: {corrosion_colors.get(val, '#ffffff')}"
-    styled = df.style.applymap(nace_color, subset=["Коррозионная агрессивность по NACE"])
-    return styled
-
+    return df.style.applymap(nace_color, subset=["Коррозионная агрессивность по NACE"])
 
 # === Интерфейс Streamlit ===
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
@@ -163,17 +168,18 @@ for i, test_name in enumerate(test_types):
             gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice, language_code)
             df_result = gpt_response_to_table(gpt_response)
 
-            st.dataframe(style_table(df_result), use_container_width=True)
+            if df_result.empty:
+                st.warning("⚠️ Не удалось извлечь таблицу. Проверьте формат PDF и убедитесь, что таблица читается как текст.")
+            else:
+                st.dataframe(style_table(df_result), use_container_width=True)
 
-            excel_buffer = BytesIO()
-            with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-                df_result.to_excel(writer, index=False, sheet_name='GPT Analysis')
+                excel_buffer = BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                    df_result.to_excel(writer, index=False, sheet_name='GPT Analysis')
 
-            st.download_button(
-                label="📊 Скачать Excel отчёт",
-                data=excel_buffer,
-                file_name=f"{test_name.replace(' ', '_')}_GPT_Report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-            
+                st.download_button(
+                    label="📊 Скачать Excel отчёт",
+                    data=excel_buffer,
+                    file_name=f"{test_name.replace(' ', '_')}_GPT_Report.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
