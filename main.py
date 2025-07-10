@@ -1,9 +1,9 @@
 import streamlit as st
 from pypdf import PdfReader
+from fpdf import FPDF
 import pandas as pd
 import io
 import os
-import math
 from openai import OpenAI
 from io import BytesIO
 
@@ -50,7 +50,7 @@ corrosion_colors = {
 # === Функции ===
 def classify_corrosion(resistivity_ohm_m):
     try:
-        val = float(str(resistivity_ohm_m).replace(",", "."))
+        val = float(resistivity_ohm_m)
         for low, high, nace, astm in corrosion_classes:
             if low <= val <= high:
                 return nace, astm
@@ -73,14 +73,15 @@ def ask_gpt_astm_analysis(test_name, extracted_text, model_name, language_code):
     prompt = f'''
 You are a technical assistant. Extract and present tabular lab data for the "{test_name}" test from the report below.
 Focus on columns:
-1. № Выработки
-2. Расстояние между электродами, а (м)
-3. Показание прибора R (Ом)
-4. Удельное сопротивление ρ = 2πRa (Ом·м)
-5. Коррозионная агрессивность по NACE
-6. Коррозионная активность по ASTM
+1. № п/п
+2. № Выработки
+3. Расстояние между электродами, а (м)
+4. Показание прибора R (Ом)
+5. Удельное сопротивление ρ = 2πRa (Ом·м)
+6. Коррозионная агрессивность по NACE
+7. Коррозионная активность по ASTM
 If some values are missing, calculate where possible or write "-".
-Return only clean table without repeating the header. Use language: {language_code.upper()}.
+Return only clean table. Use language: {language_code.upper()}.
 
 Report:
 """{extracted_text}"""
@@ -98,36 +99,18 @@ Report:
         return f"❌ GPT error: {e}"
 
 def gpt_response_to_table(response):
-    lines = [line for line in response.strip().split("\n") if line.strip() and "|" in line]
+    lines = [line for line in response.strip().split("\n") if line.strip() and "№" not in line]
     data = []
-    for i, line in enumerate(lines, start=1):
-        if any(x in line.lower() for x in ["№", "выработка", "r (ом)"]):
-            continue  # Пропустить строку заголовка
-        parts = [part.strip() for part in line.strip("- ").split("|") if part.strip()]
-
-        if len(parts) < 3:
-            continue
-
-        well_no = parts[0]
-        a_val = parts[1]
-        r_val = parts[2]
-
-        if len(parts) >= 4 and parts[3]:
-            resistivity_val = parts[3]
-        else:
-            try:
-                a = float(a_val.replace(",", "."))
-                r = float(r_val.replace(",", "."))
-                resistivity_val = round(2 * math.pi * a * r, 2)
-            except:
-                resistivity_val = "-"
-
-        nace, astm = classify_corrosion(resistivity_val)
-
-        data.append([
-            i, well_no, a_val, r_val, resistivity_val, nace, astm
-        ])
-
+    for line in lines:
+        parts = line.strip("- ").split("|")
+        if len(parts) >= 5:
+            number = parts[0].strip()
+            well_no = parts[1].strip()
+            a_val = parts[2].strip()
+            r_val = parts[3].strip()
+            resistivity_val = parts[4].strip()
+            nace, astm = classify_corrosion(resistivity_val)
+            data.append([number, well_no, a_val, r_val, resistivity_val, nace, astm])
     df = pd.DataFrame(data, columns=[
         "№ п/п",
         "№ Выработки",
@@ -138,12 +121,12 @@ def gpt_response_to_table(response):
         "Коррозионная активность по ASTM"
     ])
     return df
-
-def style_table(df):
+    def style_table(df):
     def nace_color(val):
         return f"background-color: {corrosion_colors.get(val, '#ffffff')}"
     styled = df.style.applymap(nace_color, subset=["Коррозионная агрессивность по NACE"])
     return styled
+
 
 # === Интерфейс Streamlit ===
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
@@ -192,3 +175,5 @@ for i, test_name in enumerate(test_types):
                 file_name=f"{test_name.replace(' ', '_')}_GPT_Report.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
+            
