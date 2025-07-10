@@ -4,6 +4,7 @@ from fpdf import FPDF
 import pandas as pd
 import io
 import os
+import math
 from openai import OpenAI
 from io import BytesIO
 
@@ -50,7 +51,7 @@ corrosion_colors = {
 # === Функции ===
 def classify_corrosion(resistivity_ohm_m):
     try:
-        val = float(resistivity_ohm_m)
+        val = float(str(resistivity_ohm_m).replace(",", "."))
         for low, high, nace, astm in corrosion_classes:
             if low <= val <= high:
                 return nace, astm
@@ -98,19 +99,36 @@ Report:
         return f"❌ GPT error: {e}"
 
 def gpt_response_to_table(response):
-    lines = [line for line in response.strip().split("\n") if line.strip() and "№" not in line]
+    lines = [line for line in response.strip().split("\n") if line.strip() and "|" in line]
     data = []
-    for line in lines:
-        parts = line.strip("- ").split("|")
-        if len(parts) >= 5:
-            number = parts[0].strip()
-            well_no = parts[1].strip()
-            a_val = parts[2].strip()
-            r_val = parts[3].strip()
-            resistivity_val = parts[4].strip()
-            nace, astm = classify_corrosion(resistivity_val)
-            data.append([number, well_no, a_val, r_val, resistivity_val, nace, astm])
+    for i, line in enumerate(lines, start=1):
+        parts = [part.strip() for part in line.strip("- ").split("|") if part.strip()]
+
+        if len(parts) < 3:
+            continue
+
+        well_no = parts[0]
+        a_val = parts[1]
+        r_val = parts[2]
+
+        if len(parts) >= 4 and parts[3]:
+            resistivity_val = parts[3]
+        else:
+            try:
+                a = float(a_val.replace(",", "."))
+                r = float(r_val.replace(",", "."))
+                resistivity_val = round(2 * math.pi * a * r, 2)
+            except:
+                resistivity_val = "-"
+
+        nace, astm = classify_corrosion(resistivity_val)
+
+        data.append([
+            i, well_no, a_val, r_val, resistivity_val, nace, astm
+        ])
+
     df = pd.DataFrame(data, columns=[
+        "№ п/п",
         "№ Выработки",
         "Расстояние между электродами а, (м)",
         "Показание прибора R, (Ом)",
@@ -155,7 +173,6 @@ def generate_pdf_report(test_name, findings_table):
     pdf_data = pdf.output(dest='S').encode("utf-8")
     return io.BytesIO(pdf_data)
 
-
 # === Интерфейс Streamlit ===
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
 st.title("Geotechnical Test Result Checker")
@@ -171,7 +188,6 @@ model_choice = st.sidebar.selectbox(
     index=0,
     help="GPT-4 точнее, GPT-3.5 быстрее и дешевле"
 )
-
 
 st.markdown("Загрузите PDF-файл лабораторного протокола и выберите тип теста. GPT проверит его соответствие ASTM и покажет таблицу с анализом.")
 
