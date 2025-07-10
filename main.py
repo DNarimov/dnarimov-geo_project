@@ -121,7 +121,7 @@ def gpt_response_to_table(response):
         "Коррозионная активность по ASTM"
     ])
     return df
-    def style_table(df):
+ def style_table(df):
     def nace_color(val):
         return f"background-color: {corrosion_colors.get(val, '#ffffff')}"
     styled = df.style.applymap(nace_color, subset=["Коррозионная агрессивность по NACE"])
