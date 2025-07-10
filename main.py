@@ -129,10 +129,13 @@ def style_table(df):
 def generate_pdf_report(test_name, findings_table):
     pdf = FPDF()
     pdf.add_page()
-    font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
-pdf.add_font("DejaVu", "", font_path, uni=True)
-pdf.set_font("DejaVu", size=10)
 
+    try:
+        font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
+        pdf.add_font("DejaVu", "", font_path, uni=True)
+        pdf.set_font("DejaVu", size=10)
+    except:
+        pdf.set_font("Arial", size=10)
 
     pdf.cell(200, 10, txt=f"Отчёт по тесту: {test_name}", ln=True)
     pdf.ln(5)
@@ -151,6 +154,7 @@ pdf.set_font("DejaVu", size=10)
 
     pdf_data = pdf.output(dest='S').encode("utf-8")
     return io.BytesIO(pdf_data)
+
 
 # === Интерфейс Streamlit ===
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
