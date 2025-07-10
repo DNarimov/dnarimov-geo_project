@@ -27,20 +27,20 @@ astm_standards = {
 
 # Классификация по удельному сопротивлению грунта
 corrosion_classes = [
-    (100, float('inf'), "Negligible", "Very mildly corrosive"),
-    (50.01, 100, "Mildly corrosive", "Mildly corrosive"),
-    (20.01, 50, "Mildly corrosive", "Moderately corrosive"),
-    (10.01, 20, "Moderately corrosive", "Severely corrosive"),
-    (5.01, 10, "Corrosive", "Extremely corrosive"),
-    (0, 5, "Very corrosive", "Extremely corrosive"),
+    (100, float('inf'), "Низкое", "Очень слабая коррозия"),
+    (50.01, 100, "Слабо коррозионный", "Слабо коррозионный"),
+    (20.01, 50, "Слабо коррозионный", "Умеренно коррозионный"),
+    (10.01, 20, "Умеренно коррозионный", "Высококоррозионный"),
+    (5.01, 10, "Коррозионно-активный", "Чрезвычайно коррозионный"),
+    (0, 5, "Высококоррозионный", "Чрезвычайно коррозионный"),
 ]
 
 corrosion_colors = {
-    "Negligible": "#d0f0c0",
-    "Mildly corrosive": "#fef3bd",
-    "Moderately corrosive": "#ffd59e",
-    "Corrosive": "#ffadad",
-    "Very corrosive": "#ff6b6b",
+    "Низкое": "#d0f0c0",
+    "Слабо коррозионный": "#fef3bd",
+    "Умеренно коррозионный": "#ffd59e",
+    "Коррозионно-активный": "#ffadad",
+    "Высококоррозионный": "#ff6b6b",
     "Out of range": "#cccccc",
     "Invalid": "#e0e0e0"
 }
