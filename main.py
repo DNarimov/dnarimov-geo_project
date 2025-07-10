@@ -24,6 +24,26 @@ astm_standards = {
     "Proctor Test": "ASTM D698"
 }
 
+# Классификация по удельному сопротивлению грунта
+corrosion_classes = [
+    (100, float('inf'), "Negligible", "Very mildly corrosive"),
+    (50.01, 100, "Mildly corrosive", "Mildly corrosive"),
+    (20.01, 50, "Mildly corrosive", "Moderately corrosive"),
+    (10.01, 20, "Moderately corrosive", "Severely corrosive"),
+    (5.01, 10, "Corrosive", "Extremely corrosive"),
+    (0, 5, "Very corrosive", "Extremely corrosive"),
+]
+
+def classify_corrosion(resistivity_ohm_m):
+    try:
+        val = float(resistivity_ohm_m)
+        for low, high, nace, astm in corrosion_classes:
+            if low <= val <= high:
+                return f"NACE: {nace}, ASTM: {astm}"
+        return "Out of range"
+    except:
+        return "Invalid or missing value"
+
 # === Извлечение текста из PDF ===
 def extract_text_from_pdf(pdf_file, max_chars=10000):
     reader = PdfReader(pdf_file)
@@ -44,7 +64,7 @@ Respond in language: {language_code.upper()}.
 Return data in 4 columns:
 1. Serial Number
 2. Missing required parameters or criteria (if any)
-3. Available parameter names
+3. Available parameter names (especially resistivity if present)
 4. Soil corrosion aggressiveness (weak, medium, strong) — auto classify based on values (if values are available)
 
 Report:
@@ -69,9 +89,13 @@ def gpt_response_to_table(response):
     for i, line in enumerate(lines, start=1):
         parts = line.strip("- ").split("|")
         if len(parts) >= 4:
-            data.append([str(i), parts[1].strip(), parts[2].strip(), parts[3].strip()])
+            resistivity = parts[2].strip()
+            corrosion_level = classify_corrosion(resistivity)
+            data.append([str(i), parts[1].strip(), resistivity, corrosion_level])
         elif len(parts) == 3:
-            data.append([str(i), parts[0].strip(), parts[1].strip(), parts[2].strip()])
+            resistivity = parts[2].strip()
+            corrosion_level = classify_corrosion(resistivity)
+            data.append([str(i), parts[0].strip(), resistivity, corrosion_level])
     df = pd.DataFrame(data, columns=["№ п/п", "Отсутствующие параметры / критерии", "Имеющиеся данные", "Коррозионная агрессивность"])
     return df
 
@@ -108,7 +132,7 @@ language_code = lang_codes[lang]
 
 # Модель GPT
 model_choice = st.selectbox(
-    "🤖 Выберите модель GPT:",
+    "🤖 Выберите модель Juru AI:",
     ["gpt-4-turbo", "gpt-3.5-turbo"],
     index=0,
     help="GPT-4 точнее, GPT-3.5 быстрее и дешевле"
