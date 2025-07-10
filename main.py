@@ -161,7 +161,7 @@ lang_codes = {"Русский": "ru", "O'zbek": "uz", "English": "en"}
 language_code = lang_codes[lang]
 
 model_choice = st.sidebar.selectbox(
-    "🤖 Выберите модель JURU AI:",
+    "🤖 Выберите модель GPT:",
     ["gpt-4-turbo", "gpt-3.5-turbo"],
     index=0,
     help="GPT-4 точнее, GPT-3.5 быстрее и дешевле"
