@@ -81,7 +81,7 @@ Focus on columns:
 5. Коррозионная агрессивность по NACE
 6. Коррозионная активность по ASTM
 If some values are missing, calculate where possible or write "-".
-Return only clean table. Use language: {language_code.upper()}.
+Return only clean table without repeating the header. Use language: {language_code.upper()}.
 
 Report:
 """{extracted_text}"""
@@ -102,6 +102,8 @@ def gpt_response_to_table(response):
     lines = [line for line in response.strip().split("\n") if line.strip() and "|" in line]
     data = []
     for i, line in enumerate(lines, start=1):
+        if any(x in line.lower() for x in ["№", "выработка", "r (ом)"]):
+            continue  # Пропустить строку заголовка
         parts = [part.strip() for part in line.strip("- ").split("|") if part.strip()]
 
         if len(parts) < 3:
@@ -170,7 +172,7 @@ def generate_pdf_report(test_name, findings_table):
             pdf.cell(col_widths[i], 10, txt=str(val), border=1)
         pdf.ln()
 
-    pdf_data = pdf.output(dest='S').encode("utf-8")
+    pdf_data = pdf.output(dest='S').encode("latin1")
     return io.BytesIO(pdf_data)
 
 # === Интерфейс Streamlit ===
