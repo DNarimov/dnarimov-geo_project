@@ -1,6 +1,5 @@
 import streamlit as st
 from pypdf import PdfReader
-from fpdf import FPDF
 import pandas as pd
 import io
 import os
@@ -146,35 +145,6 @@ def style_table(df):
     styled = df.style.applymap(nace_color, subset=["Коррозионная агрессивность по NACE"])
     return styled
 
-def generate_pdf_report(test_name, findings_table):
-    pdf = FPDF()
-    pdf.add_page()
-
-    try:
-        font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
-        pdf.add_font("DejaVu", "", font_path, uni=True)
-        pdf.set_font("DejaVu", size=10)
-    except:
-        pdf.set_font("Arial", size=10)
-
-    pdf.cell(200, 10, txt=f"Отчёт по тесту: {test_name}", ln=True)
-    pdf.ln(5)
-
-    col_names = findings_table.columns.tolist()
-    col_widths = [20, 30, 35, 30, 40, 45, 45]
-
-    for i, name in enumerate(col_names):
-        pdf.cell(col_widths[i], 10, txt=name, border=1)
-    pdf.ln()
-
-    for _, row in findings_table.iterrows():
-        for i, val in enumerate(row):
-            pdf.cell(col_widths[i], 10, txt=str(val), border=1)
-        pdf.ln()
-
-    pdf_data = pdf.output(dest='S').encode("latin1")
-    return io.BytesIO(pdf_data)
-
 # === Интерфейс Streamlit ===
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
 st.title("Geotechnical Test Result Checker")
@@ -221,12 +191,4 @@ for i, test_name in enumerate(test_types):
                 data=excel_buffer,
                 file_name=f"{test_name.replace(' ', '_')}_GPT_Report.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-            pdf_file = generate_pdf_report(test_name, df_result)
-            st.download_button(
-                label="📄 Скачать PDF отчёт",
-                data=pdf_file,
-                file_name=f"{test_name.replace(' ', '_')}_GPT_Report.pdf",
-                mime="application/pdf"
             )
