@@ -6,10 +6,8 @@ import re
 from openai import OpenAI
 from io import BytesIO
 
-# === OpenAI API ===
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
-# === ASTM стандарты ===
 astm_standards = {
     "Electrical Resistivity Test (ERT)": "ASTM G57",
     "Seismic Refraction Test (SRT)": "ASTM D5777",
@@ -24,7 +22,6 @@ astm_standards = {
     "Proctor Test": "ASTM D698"
 }
 
-# === Классы коррозии ===
 corrosion_classes = [
     (100, float('inf'), "Низкое", "Очень слабая коррозия"),
     (50.01, 100, "Слабо коррозионный", "Слабо коррозионный"),
@@ -45,8 +42,6 @@ corrosion_colors = {
     "Out of range": "#cccccc",
     "Invalid": "#e0e0e0"
 }
-
-# === Вспомогательные функции ===
 
 def classify_corrosion(resistivity_ohm_m):
     try:
@@ -87,9 +82,11 @@ def ask_gpt_astm_analysis(test_name, extracted_text, model_name, language_code):
     prompt = f'''
 You are a geotechnical assistant.
 
-Given the lab report below for the "{test_name}" test, do the following:
+From the report below for the "{test_name}" test, perform the following:
 
-1. Extract a clean data table with the following columns:
+1. Extract **ALL rows** from any tabular data related to this test, even if they seem repetitive or similar. Do not skip any rows. Your table must contain all ERT measurements as found in the file.
+
+2. Build a table with these columns:
    - № п/п
    - № Выработки
    - Расстояние между электродами, а (м)
@@ -98,14 +95,13 @@ Given the lab report below for the "{test_name}" test, do the following:
    - Коррозионная агрессивность по NACE
    - Коррозионная активность по ASTM
 
-2. All numeric values must be formatted with 2 decimal places. Use "-" for missing or non-numeric data.
+3. Use 2 decimal places for all numeric values. If a value is missing or unparseable — write "-".
 
-3. Then provide a short summary below the table that clearly lists:
-   - Which values or columns are missing or incomplete.
-   - What ASTM-required parameters are missing or improperly reported according to {standard}.
+4. After the table, list:
+   - Any missing or invalid values (specify row/column).
+   - What ASTM-required parameters are missing or incomplete based on {standard}.
 
 Use language: {language_code.upper()}.
-
 Report:
 """{extracted_text}"""
 '''
@@ -114,7 +110,7 @@ Report:
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=1500
+            max_tokens=2000
         )
         return response.choices[0].message.content
     except Exception as e:
@@ -235,7 +231,6 @@ for i, test_name in enumerate(test_types):
 
             st.dataframe(style_table(df_result), use_container_width=True)
 
-            # Анализ пропущенных данных
             missing_entries = analyze_missing_data(df_result)
             if missing_entries:
                 st.subheader("❗ Пропущенные данные:")
@@ -244,22 +239,23 @@ for i, test_name in enumerate(test_types):
             else:
                 st.success("✅ Все значения присутствуют.")
 
-            # Анализ ниже таблицы — без макросов
-            extra_lines = gpt_response.strip().splitlines()
+            # Комментарии GPT (ниже таблицы)
+            lines = gpt_response.strip().splitlines()
+            split_index = 0
+            for i, line in enumerate(lines):
+                if re.match(r"^\s*[-=]{3,}\s*$", line):
+                    split_index = i + 1
+                    break
+            comment_lines = lines[split_index:]
             comment_lines = [
-                line for line in extra_lines
-                if not "|" in line
-                and not re.match(r"^\s*№", line)
-                and not re.match(r"^\s*-{2,}", line)
-                and "..." not in line.lower()
-                and len(line.strip()) > 0
+                line for line in comment_lines
+                if line.strip() and not re.match(r"^\s*[-=]{3,}$", line) and "..." not in line.lower()
             ]
             if comment_lines:
                 st.markdown("### 🧠 Комментарии от JURU AI:")
                 for line in comment_lines:
                     st.markdown(f"- {line}")
 
-            # Скачивание Excel
             excel_buffer = BytesIO()
             with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
                 df_result.to_excel(writer, index=False, sheet_name='GPT Analysis')
