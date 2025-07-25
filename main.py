@@ -1,6 +1,5 @@
 import streamlit as st
 from pypdf import PdfReader
-from fpdf import FPDF
 import pandas as pd
 import io
 import os
@@ -9,10 +8,8 @@ import re
 from openai import OpenAI
 from io import BytesIO
 
-# OpenAI client
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
-# ASTM стандарты
 astm_standards = {
     "Electrical Resistivity Test (ERT)": "ASTM G57",
     "Seismic Refraction Test (SRT)": "ASTM D5777",
@@ -93,8 +90,6 @@ Given the lab report below for the "{test_name}" test, do the following:
    - Which values or columns are missing or incomplete.
    - What ASTM-required parameters are missing or improperly reported according to {standard}.
 
-Return the table first, then the analysis as a list.
-
 Use language: {language_code.upper()}.
 
 Report:
@@ -126,9 +121,11 @@ def parse_distance_to_meters(raw_value):
         return None
 
 def gpt_response_to_table(response):
-    lines = [line for line in response.strip().split("\n") if line.strip() and "№" not in line]
+    lines = [line for line in response.strip().split("\n") if line.strip()]
+    table_lines = [line for line in lines if "|" in line and not re.match(r"^\s*-{2,}", line)]
+
     data = []
-    for line in lines:
+    for line in table_lines:
         parts = [p.strip() for p in line.strip("- ").split("|") if p.strip()]
         if len(parts) < 5:
             continue
@@ -203,7 +200,7 @@ def style_table(df):
         .applymap(astm_color, subset=["Коррозионная активность по ASTM"]) \
         .applymap(missing_highlight)
 
-# === Интерфейс Streamlit ===
+# Интерфейс
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
 st.title("🧪 Geotechnical Test Result Checker")
 
@@ -238,7 +235,7 @@ for i, test_name in enumerate(test_types):
 
             st.dataframe(style_table(df_result), use_container_width=True)
 
-            # 🔍 Анализ пропущенных значений
+            # Пропущенные значения
             missing_entries = analyze_missing_data(df_result)
             if missing_entries:
                 st.subheader("❗ Пропущенные данные:")
@@ -247,14 +244,15 @@ for i, test_name in enumerate(test_types):
             else:
                 st.success("✅ Все значения присутствуют.")
 
-            # 📝 Показываем анализ GPT (если ниже таблицы есть)
-            if "---" in gpt_response:
-                st.subheader("🧠 Комментарии GPT:")
-                parts = gpt_response.strip().split("---")
-                if len(parts) > 1:
-                    st.text_area("📋 Анализ соответствия ASTM:", parts[-1].strip(), height=200)
+            # Вывод комментариев GPT как текст
+            extra_lines = gpt_response.strip().splitlines()
+            comment_lines = [line for line in extra_lines if not "|" in line and not re.match(r"^\s*№", line)]
+            if comment_lines:
+                st.markdown("### 🧠 Комментарии от JURU AI:")
+                for line in comment_lines:
+                    st.markdown(f"- {line}")
 
-            # 📤 Скачивание
+            # Скачивание Excel
             excel_buffer = BytesIO()
             with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
                 df_result.to_excel(writer, index=False, sheet_name='GPT Analysis')
