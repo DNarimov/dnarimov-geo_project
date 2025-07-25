@@ -9,6 +9,75 @@ from io import BytesIO
 # --- API ---
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
+# --- UI Localized Texts ---
+ui_texts = {
+    "page_title": {
+        "ru": "Проверка геотехнических испытаний",
+        "en": "Geotechnical Test Validator",
+        "uz": "Geotexnik sinovlarni tekshirish"
+    },
+    "language_label": {
+        "ru": "🌐 Язык:", "en": "🌐 Language:", "uz": "🌐 Til:"
+    },
+    "upload_instruction": {
+        "ru": "Загрузите PDF и выберите тип испытания для проверки по ASTM",
+        "en": "Upload a PDF report and select a test type to validate against ASTM.",
+        "uz": "PDF hisobotini yuklang va ASTM bo‘yicha tekshirish uchun sinov turini tanlang."
+    },
+    "comments_section": {
+        "ru": "💬 Комментарии от Juru AI:",
+        "en": "💬 Juru AI Comments:",
+        "uz": "💬 Juru AI izohlari:"
+    },
+    "missing_notes": {
+        "ru": "Дополнительные замечания:",
+        "en": "Additional Notes:",
+        "uz": "Qo‘shimcha eslatmalar:"
+    },
+    "missing_values": {
+        "ru": "⚠Пропущенные значения:",
+        "en": "⚠Missing values:",
+        "uz": "⚠Yetishmayotgan qiymatlar:"
+    },
+    "all_present": {
+        "ru": "✅ Все значения присутствуют.",
+        "en": "✅ All values present.",
+        "uz": "✅ Barcha qiymatlar mavjud."
+    },
+    "download_excel": {
+        "ru": "📥 Скачать Excel",
+        "en": "📥 Download Excel",
+        "uz": "📥 Excel yuklab olish"
+    },
+    "upload_file": {
+        "ru": "Загрузите PDF для",
+        "en": "Upload PDF for",
+        "uz": "Ushbu test uchun PDF yuklang:"
+    },
+    "loading_pdf": {
+        "ru": "Чтение PDF...",
+        "en": "Reading PDF...",
+        "uz": "PDF o‘qilmoqda..."
+    },
+    "pdf_loaded": {
+        "ru": "✅ PDF загружен.",
+        "en": "✅ PDF loaded.",
+        "uz": "✅ PDF yuklandi."
+    }
+}
+
+# --- Язык UI ---
+lang = st.sidebar.selectbox(
+    ui_texts["language_label"]["en"], ["Русский", "English", "O'zbek"]
+)
+lang_codes = {"Русский": "ru", "English": "en", "O'zbek": "uz"}
+language_code = lang_codes[lang]
+
+# --- Интерфейс ---
+st.set_page_config(ui_texts["page_title"][language_code], layout="wide")
+st.title(ui_texts["page_title"][language_code])
+st.markdown(ui_texts["upload_instruction"][language_code])
+
 # --- Конфигурации ---
 column_translations = {
     "ru": ["№ п/п", "№ Выработки", "Расстояние между электродами а, (м)", "Показание прибора R, (Ом)",
@@ -105,20 +174,17 @@ def classify_corrosion(resistivity_ohm_m):
         return "Invalid", "Invalid"
 
 def ask_gpt_astm_analysis(test_name, extracted_text, model_name, language_code):
-    standard = astm_standards.get(test_name, "соответствующий ASTM стандарт")
     prompt = f'''
 From the report below for the "{test_name}" test:
 
-1. Extract ALL ERT rows.
+1. Extract ALL ERT rows (data-like).
 2. Create a table:
-- № п/п | № Выработки | Расстояние между электродами, а (м) | Показание прибора R (Ом) | Удельное сопротивление ρ = 2πRa (Ом·м) | Коррозионная агрессивность по NACE | Коррозионная активность по ASTM
+- No. | Point | Electrode Spacing a (m) | Reading R (Ohm) | Resistivity ρ = 2πRa (Ohm·m) | NACE Class | ASTM Class
 3. Round numbers to 2 decimals. Write "-" if missing.
-4. After the table: list all missing values and auto-calculated ones.
-
+4. After the table: list all missing or calculated values.
 Language: {language_code.upper()}
-"""
-{extracted_text}
-"""
+
+"{extracted_text}"
 '''
     try:
         response = client.chat.completions.create(
@@ -168,6 +234,10 @@ missing_explanations = {
     "en": {
         "R": "missing value of R (instrument reading)",
         "ρ": "missing resistivity value, calculated automatically by the program"
+    },
+    "uz": {
+        "R": "R qiymati yo‘q (asbob ko‘rsatmasi)",
+        "ρ": "Xususiy qarshilik yo‘q, dastur tomonidan hisoblangan"
     }
 }
 
@@ -191,7 +261,7 @@ lang = st.sidebar.selectbox("🌐 Language:", ["Русский", "English", "O'z
 lang_codes = {"Русский": "ru", "English": "en", "O'zbek": "uz"}
 language_code = lang_codes[lang]
 
-model_choice = st.sidebar.selectbox(" Juru AI Model:", ["gpt-4-turbo", "gpt-3.5-turbo"])
+model_choice = st.sidebar.selectbox("🤖 Juru AI Model:", ["gpt-4-turbo", "gpt-3.5-turbo"])
 
 st.markdown("Upload a PDF report and select a test type to validate against ASTM.")
 
@@ -212,17 +282,19 @@ for i, test_name in enumerate(test_types):
             df_result = gpt_response_to_table(gpt_response, language_code)
             st.dataframe(style_table(df_result), use_container_width=True)
 
+            # Дополнительные замечания
             missing_notes = explain_missing_values(df_result, language_code)
             if missing_notes:
                 st.subheader("📌 Дополнительные замечания:")
                 for note in missing_notes:
                     st.markdown(f"- {note}")
 
+            # Пропущенные значения
             missing = []
             for row in df_result.itertuples(index=False):
                 for i, val in enumerate(row):
                     if str(val).strip().lower() in ["-", "nan", "", "none"]:
-                        missing.append(f"❌ Пропущено в строке {getattr(row, df_result.columns[0])}, колонка '{df_result.columns[i]}'")
+                        missing.append(f"❌ Пропущено в строке {row[0]}, колонка '{df_result.columns[i]}'")
 
             if missing:
                 st.subheader("⚠️ Missing values:")
@@ -231,12 +303,14 @@ for i, test_name in enumerate(test_types):
             else:
                 st.success("✅ All values present.")
 
+            # Комментарии GPT
             comments = [l for l in gpt_response.splitlines() if "|" not in l and "---" not in l and l.strip()]
             if comments:
-                st.subheader("Juru AI Comments:")
+                st.subheader("💬 Juru AI Comments:")
                 for c in comments:
                     st.markdown(f"- {c}")
 
+            # Excel Export
             excel_buffer = BytesIO()
             with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
                 df_result.to_excel(writer, index=False, sheet_name="GPT Analysis")
