@@ -118,39 +118,50 @@ def gpt_response_to_table(response):
     lines = [line for line in response.strip().split("\n") if line.strip() and "№" not in line]
     data = []
     for line in lines:
-        parts = line.strip("- ").split("|")
-        if len(parts) >= 5:
-            number = parts[0].strip()
-            well_no = parts[1].strip()
-            a_raw = parts[2].strip()
-            r_val = parts[3].strip().replace(",", ".")
-            resistivity_val = parts[4].strip().replace(",", ".")
+        parts = [p.strip() for p in line.strip("- ").split("|") if p.strip()]
+        if len(parts) < 5:
+            continue
 
-            a_meters = parse_distance_to_meters(a_raw)
-            a_val = str(a_meters) if a_meters is not None else "-"
+        # Безопасное извлечение
+        number = parts[0] if len(parts) > 0 else "-"
+        well_no = parts[1] if len(parts) > 1 else "-"
+        a_raw = parts[2] if len(parts) > 2 else "-"
+        r_val = parts[3] if len(parts) > 3 else "-"
+        resistivity_val = parts[4] if len(parts) > 4 else "-"
 
-            try:
-                r_float = float(r_val)
-            except:
-                r_float = None
+        a_meters = parse_distance_to_meters(a_raw)
+        a_val = str(a_meters) if a_meters is not None else "-"
 
-            if resistivity_val in ["-", "", "—"]:
-                if a_meters is not None and r_float is not None:
-                    resistivity_val = round(2 * math.pi * r_float * a_meters, 2)
-                else:
-                    resistivity_val = "-"
+        try:
+            r_float = float(r_val.replace(",", "."))
+        except:
+            r_float = None
 
-            nace, astm = classify_corrosion(resistivity_val)
+        try:
+            rho_float = float(resistivity_val.replace(",", "."))
+        except:
+            rho_float = None
 
-            data.append([
-                number,
-                well_no,
-                a_val,
-                r_val,
-                resistivity_val,
-                nace,
-                astm
-            ])
+        # Если GPT перепутал — авторасчет
+        if (rho_float is None or rho_float < 20) and r_float and a_meters:
+            resistivity_val = round(2 * math.pi * r_float * a_meters, 2)
+        elif rho_float:
+            resistivity_val = rho_float
+        else:
+            resistivity_val = "-"
+
+        nace, astm = classify_corrosion(resistivity_val)
+
+        data.append([
+            number,
+            well_no,
+            a_val,
+            r_val,
+            resistivity_val,
+            nace,
+            astm
+        ])
+
     df = pd.DataFrame(data, columns=[
         "№ п/п",
         "№ Выработки",
@@ -161,6 +172,7 @@ def gpt_response_to_table(response):
         "Коррозионная активность по ASTM"
     ])
     return df
+
 
 def style_table(df):
     def nace_color(val):
