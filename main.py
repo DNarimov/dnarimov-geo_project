@@ -195,6 +195,7 @@ def classify_corrosion(resistivity_ohm_m):
 def ask_gpt_astm_analysis(test_name, extracted_text, model_name, language_code):
     prompt = f"""
 You are an expert geotechnical assistant. Analyze the report below.
+
 1. Extract only relevant data rows for the test: \"{test_name}\".
 2. Create a clean markdown table with 7 columns:
 | № | Точка | a (м) | R (Ом) | ρ (Ом·м) | NACE | ASTM |
@@ -204,7 +205,8 @@ You are an expert geotechnical assistant. Analyze the report below.
    - Missing R values
    - Auto-calculated ρ = 2πRa values
 Language: {language_code.upper()}
-"""{extracted_text}"""
+
+{extracted_text}
 """
     try:
         response = client.chat.completions.create(
