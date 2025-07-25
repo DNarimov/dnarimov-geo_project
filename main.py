@@ -203,45 +203,41 @@ for i, test_name in enumerate(test_types):
         st.header(test_name)
         uploaded_file = st.file_uploader(f"📎 Upload PDF for {test_name}", type="pdf", key=test_name)
 
-       if uploaded_file:
-    with st.spinner("Reading PDF..."):
-        text = extract_text_from_pdf(uploaded_file)
-        st.success("✅ PDF loaded.")
+        if uploaded_file:
+            with st.spinner("Reading PDF..."):
+                text = extract_text_from_pdf(uploaded_file)
+                st.success("✅ PDF loaded.")
 
-    gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice, language_code)
-    df_result = gpt_response_to_table(gpt_response, language_code)
-    st.dataframe(style_table(df_result), use_container_width=True)
+            gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice, language_code)
+            df_result = gpt_response_to_table(gpt_response, language_code)
+            st.dataframe(style_table(df_result), use_container_width=True)
 
-    # 🔍 Пояснения по пропущенным значениям
-    missing_notes = explain_missing_values(df_result, language_code)
-    if missing_notes:
-        st.subheader("📌 Дополнительные замечания:")
-        for note in missing_notes:
-            st.markdown(f"- {note}")
+            missing_notes = explain_missing_values(df_result, language_code)
+            if missing_notes:
+                st.subheader("📌 Дополнительные замечания:")
+                for note in missing_notes:
+                    st.markdown(f"- {note}")
 
-    # ❗ Явный вывод по отсутствию значений
-    missing = []
-    for row in df_result.itertuples(index=False):
-        for i, val in enumerate(row):
-            if str(val).strip().lower() in ["-", "nan", "", "none"]:
-                missing.append(f"❌ Пропущено в строке {getattr(row, df_result.columns[0])}, колонка '{df_result.columns[i]}'")
+            missing = []
+            for row in df_result.itertuples(index=False):
+                for i, val in enumerate(row):
+                    if str(val).strip().lower() in ["-", "nan", "", "none"]:
+                        missing.append(f"❌ Пропущено в строке {getattr(row, df_result.columns[0])}, колонка '{df_result.columns[i]}'")
 
-    if missing:
-        st.subheader("⚠️ Missing values:")
-        for m in missing:
-            st.markdown(f"- {m}")
-    else:
-        st.success("✅ All values present.")
+            if missing:
+                st.subheader("⚠️ Missing values:")
+                for m in missing:
+                    st.markdown(f"- {m}")
+            else:
+                st.success("✅ All values present.")
 
-    # 💬 Комментарии GPT
-    comments = [l for l in gpt_response.splitlines() if "|" not in l and "---" not in l and l.strip()]
-    if comments:
-        st.subheader("Juru AI Comments:")
-        for c in comments:
-            st.markdown(f"- {c}")
+            comments = [l for l in gpt_response.splitlines() if "|" not in l and "---" not in l and l.strip()]
+            if comments:
+                st.subheader("Juru AI Comments:")
+                for c in comments:
+                    st.markdown(f"- {c}")
 
-    # 📥 Excel
-    excel_buffer = BytesIO()
-    with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
-        df_result.to_excel(writer, index=False, sheet_name="GPT Analysis")
-    st.download_button("📥 Download Excel", data=excel_buffer.getvalue(), file_name=f"{test_name}.xlsx")
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+                df_result.to_excel(writer, index=False, sheet_name="GPT Analysis")
+            st.download_button("📥 Download Excel", data=excel_buffer.getvalue(), file_name=f"{test_name}.xlsx")
