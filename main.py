@@ -173,7 +173,7 @@ st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
 st.title("Geotechnical Test Result Checker")
 
 
-    lang = st.sidebar.selectbox("🌐 Выберите язык:", ["Русский", "O'zbek", "English"])
+lang = st.sidebar.selectbox("🌐 Выберите язык:", ["Русский", "O'zbek", "English"])
 lang_codes = {"Русский": "ru", "O'zbek": "uz", "English": "en"}
 language_code = lang_codes[lang]
 
