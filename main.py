@@ -4,6 +4,8 @@ from fpdf import FPDF
 import pandas as pd
 import io
 import os
+import math
+import re
 from openai import OpenAI
 from io import BytesIO
 
@@ -48,6 +50,7 @@ corrosion_colors = {
 }
 
 # === Функции ===
+
 def classify_corrosion(resistivity_ohm_m):
     try:
         val = float(resistivity_ohm_m)
@@ -86,7 +89,6 @@ Return only clean table. Use language: {language_code.upper()}.
 Report:
 """{extracted_text}"""
 '''
-
     try:
         response = client.chat.completions.create(
             model=model_name,
@@ -98,6 +100,20 @@ Report:
     except Exception as e:
         return f"❌ GPT error: {e}"
 
+def parse_distance_to_meters(raw_value):
+    val = raw_value.lower().strip().replace(",", ".")
+    if re.search(r"(см|cm)", val):
+        number = re.findall(r"[\d\.]+", val)
+        if number:
+            return round(float(number[0]) / 100, 4)
+    try:
+        fval = float(val)
+        if fval > 10:
+            return round(fval / 100, 4)
+        return round(fval, 4)
+    except:
+        return None
+
 def gpt_response_to_table(response):
     lines = [line for line in response.strip().split("\n") if line.strip() and "№" not in line]
     data = []
@@ -106,11 +122,35 @@ def gpt_response_to_table(response):
         if len(parts) >= 5:
             number = parts[0].strip()
             well_no = parts[1].strip()
-            a_val = parts[2].strip()
-            r_val = parts[3].strip()
-            resistivity_val = parts[4].strip()
+            a_raw = parts[2].strip()
+            r_val = parts[3].strip().replace(",", ".")
+            resistivity_val = parts[4].strip().replace(",", ".")
+
+            a_meters = parse_distance_to_meters(a_raw)
+            a_val = str(a_meters) if a_meters is not None else "-"
+
+            try:
+                r_float = float(r_val)
+            except:
+                r_float = None
+
+            if resistivity_val in ["-", "", "—"]:
+                if a_meters is not None and r_float is not None:
+                    resistivity_val = round(2 * math.pi * r_float * a_meters, 2)
+                else:
+                    resistivity_val = "-"
+
             nace, astm = classify_corrosion(resistivity_val)
-            data.append([number, well_no, a_val, r_val, resistivity_val, nace, astm])
+
+            data.append([
+                number,
+                well_no,
+                a_val,
+                r_val,
+                resistivity_val,
+                nace,
+                astm
+            ])
     df = pd.DataFrame(data, columns=[
         "№ п/п",
         "№ Выработки",
@@ -151,7 +191,7 @@ tabs = st.tabs(test_types)
 
 for i, test_name in enumerate(test_types):
     with tabs[i]:
-        st.header(f" {test_name}")
+        st.header(f"{test_name}")
         uploaded_file = st.file_uploader(f"Загрузите PDF для {test_name}", type="pdf", key=test_name)
 
         if uploaded_file:
