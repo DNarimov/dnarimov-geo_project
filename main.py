@@ -142,6 +142,13 @@ def gpt_response_to_table(response):
         except:
             rho_float = None
 
+         # Округление до 2 знаков
+            try:
+                resistivity_float = round(float(resistivity_val.replace(',', '.')), 2)
+                resistivity_val = f"{resistivity_float:.2f}"
+            except:
+                resistivity_val = "-"
+
         # Если GPT перепутал — авторасчет
         if (rho_float is None or rho_float < 20) and r_float and a_meters:
             resistivity_val = round(2 * math.pi * r_float * a_meters, 2)
@@ -171,14 +178,6 @@ def gpt_response_to_table(response):
         "Коррозионная агрессивность по NACE",
         "Коррозионная активность по ASTM"
     ])
-        df["Удельное электрическое сопротивление ρ=2πRa Ом·м"] = (
-    df["Удельное электрическое сопротивление ρ=2πRa Ом·м"]
-    .astype(str)  # Преобразуем в строки на всякий случай
-    .str.replace(r"[^\d.,-]", "", regex=True)  # Удалим все символы кроме цифр и точки
-    .str.replace(",", ".", regex=False)  # Заменим запятую на точку
-    .astype(float)  # Преобразуем в float
-    .round(2)  # Округлим до 2 знаков
-)
 
     return df
 
