@@ -160,6 +160,29 @@ def style_table(df):
     def highlight(val): return "background-color: #fdd" if val in ["-", "nan", "", None] else ""
     return df.style.applymap(color, subset=[df.columns[-2], df.columns[-1]]).applymap(highlight)
 
+missing_explanations = {
+    "ru": {
+        "R": "отсутствует значение R (показание прибора)",
+        "ρ": "отсутствует значение удельного сопротивления, программа рассчитала автоматически"
+    },
+    "en": {
+        "R": "missing value of R (instrument reading)",
+        "ρ": "missing resistivity value, calculated automatically by the program"
+    }
+}
+
+def explain_missing_values(df, lang_code):
+    messages = []
+    for idx, row in df.iterrows():
+        well = row[1]
+        r = str(row[3]).strip().lower()
+        rho = str(row[4]).strip().lower()
+        if r in ["-", "", "nan", "none"]:
+            messages.append(f"{well} – {missing_explanations[lang_code]['R']}")
+        if rho in ["-", "", "nan", "none"]:
+            messages.append(f"{well} – {missing_explanations[lang_code]['ρ']}")
+    return messages
+
 # --- Интерфейс ---
 st.set_page_config("Geotechnical Test Checker", layout="wide")
 st.title("Geotechnical Test Validator")
@@ -180,35 +203,45 @@ for i, test_name in enumerate(test_types):
         st.header(test_name)
         uploaded_file = st.file_uploader(f"📎 Upload PDF for {test_name}", type="pdf", key=test_name)
 
-        if uploaded_file:
-            with st.spinner("Reading PDF..."):
-                text = extract_text_from_pdf(uploaded_file)
-                st.success("✅ PDF loaded.")
+       if uploaded_file:
+    with st.spinner("Reading PDF..."):
+        text = extract_text_from_pdf(uploaded_file)
+        st.success("✅ PDF loaded.")
 
-            gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice, language_code)
-            df_result = gpt_response_to_table(gpt_response, language_code)
-            st.dataframe(style_table(df_result), use_container_width=True)
+    gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice, language_code)
+    df_result = gpt_response_to_table(gpt_response, language_code)
+    st.dataframe(style_table(df_result), use_container_width=True)
 
-            missing = []
-            for row in df_result.itertuples(index=False):
-                for i, val in enumerate(row):
-                    if str(val).strip().lower() in ["-", "nan", "", "none"]:
-                        missing.append(f"❌ Пропущено в строке {getattr(row, df_result.columns[0])}, колонка '{df_result.columns[i]}'")
+    # 🔍 Пояснения по пропущенным значениям
+    missing_notes = explain_missing_values(df_result, language_code)
+    if missing_notes:
+        st.subheader("📌 Дополнительные замечания:")
+        for note in missing_notes:
+            st.markdown(f"- {note}")
 
-            if missing:
-                st.subheader("⚠️ Missing values:")
-                for m in missing:
-                    st.markdown(f"- {m}")
-            else:
-                st.success("✅ All values present.")
+    # ❗ Явный вывод по отсутствию значений
+    missing = []
+    for row in df_result.itertuples(index=False):
+        for i, val in enumerate(row):
+            if str(val).strip().lower() in ["-", "nan", "", "none"]:
+                missing.append(f"❌ Пропущено в строке {getattr(row, df_result.columns[0])}, колонка '{df_result.columns[i]}'")
 
-            comments = [l for l in gpt_response.splitlines() if "|" not in l and "---" not in l and l.strip()]
-            if comments:
-                st.subheader("Juru AI Comments:")
-                for c in comments:
-                    st.markdown(f"- {c}")
+    if missing:
+        st.subheader("⚠️ Missing values:")
+        for m in missing:
+            st.markdown(f"- {m}")
+    else:
+        st.success("✅ All values present.")
 
-            excel_buffer = BytesIO()
-            with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
-                df_result.to_excel(writer, index=False, sheet_name="GPT Analysis")
-            st.download_button("📥 Download Excel", data=excel_buffer.getvalue(), file_name=f"{test_name}.xlsx")
+    # 💬 Комментарии GPT
+    comments = [l for l in gpt_response.splitlines() if "|" not in l and "---" not in l and l.strip()]
+    if comments:
+        st.subheader("Juru AI Comments:")
+        for c in comments:
+            st.markdown(f"- {c}")
+
+    # 📥 Excel
+    excel_buffer = BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+        df_result.to_excel(writer, index=False, sheet_name="GPT Analysis")
+    st.download_button("📥 Download Excel", data=excel_buffer.getvalue(), file_name=f"{test_name}.xlsx")
