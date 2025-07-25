@@ -27,7 +27,6 @@ astm_standards = {
     "Proctor Test": "ASTM D698"
 }
 
-# Классификация по удельному сопротивлению грунта
 corrosion_classes = [
     (100, float('inf'), "Низкое", "Очень слабая коррозия"),
     (50.01, 100, "Слабо коррозионный", "Слабо коррозионный"),
@@ -49,8 +48,6 @@ corrosion_colors = {
     "Invalid": "#e0e0e0"
 }
 
-# === Функции ===
-
 def classify_corrosion(resistivity_ohm_m):
     try:
         val = float(resistivity_ohm_m)
@@ -61,30 +58,44 @@ def classify_corrosion(resistivity_ohm_m):
     except:
         return "Invalid", "Invalid"
 
-def extract_text_from_pdf(pdf_file, max_chars=10000):
+def extract_text_from_pdf(pdf_file):
     reader = PdfReader(pdf_file)
     text = ""
     for page in reader.pages:
         text += page.extract_text() or ""
-        if len(text) > max_chars:
-            break
-    return text[:max_chars]
+    return text
+
+def format_float(val):
+    try:
+        return f"{round(float(str(val).replace(',', '.')), 2):.2f}"
+    except:
+        return "-"
 
 def ask_gpt_astm_analysis(test_name, extracted_text, model_name, language_code):
     standard = astm_standards.get(test_name, "соответствующий ASTM стандарт")
-
     prompt = f'''
-You are a technical assistant. Extract and present tabular lab data for the "{test_name}" test from the report below.
-Focus on columns:
-1. № п/п
-2. № Выработки
-3. Расстояние между электродами, а (м)
-4. Показание прибора R (Ом)
-5. Удельное сопротивление ρ = 2πRa (Ом·м)
-6. Коррозионная агрессивность по NACE
-7. Коррозионная активность по ASTM
-If some values are missing, calculate where possible or write "-".
-Return only clean table. Use language: {language_code.upper()}.
+You are a geotechnical assistant.
+
+Given the lab report below for the "{test_name}" test, do the following:
+
+1. Extract a clean data table with the following columns:
+   - № п/п
+   - № Выработки
+   - Расстояние между электродами, а (м)
+   - Показание прибора R (Ом)
+   - Удельное сопротивление ρ = 2πRa (Ом·м)
+   - Коррозионная агрессивность по NACE
+   - Коррозионная активность по ASTM
+
+2. All numeric values must be formatted with 2 decimal places. Use "-" for missing or non-numeric data.
+
+3. Then provide a short summary below the table that clearly lists:
+   - Which values or columns are missing or incomplete.
+   - What ASTM-required parameters are missing or improperly reported according to {standard}.
+
+Return the table first, then the analysis as a list.
+
+Use language: {language_code.upper()}.
 
 Report:
 """{extracted_text}"""
@@ -122,7 +133,6 @@ def gpt_response_to_table(response):
         if len(parts) < 5:
             continue
 
-        # Безопасное извлечение
         number = parts[0] if len(parts) > 0 else "-"
         well_no = parts[1] if len(parts) > 1 else "-"
         a_raw = parts[2] if len(parts) > 2 else "-"
@@ -130,7 +140,7 @@ def gpt_response_to_table(response):
         resistivity_val = parts[4] if len(parts) > 4 else "-"
 
         a_meters = parse_distance_to_meters(a_raw)
-        a_val = str(a_meters) if a_meters is not None else "-"
+        a_val = format_float(a_meters) if a_meters is not None else "-"
 
         try:
             r_float = float(r_val.replace(",", "."))
@@ -142,20 +152,10 @@ def gpt_response_to_table(response):
         except:
             rho_float = None
 
-         # Округление до 2 знаков
-            try:
-                resistivity_float = round(float(resistivity_val.replace(',', '.')), 2)
-                resistivity_val = f"{resistivity_float:.2f}"
-            except:
-                resistivity_val = "-"
-
-        # Если GPT перепутал — авторасчет
         if (rho_float is None or rho_float < 20) and r_float and a_meters:
-            resistivity_val = round(2 * math.pi * r_float * a_meters, 2)
-        elif rho_float:
-            resistivity_val = rho_float
+            resistivity_val = format_float(2 * math.pi * r_float * a_meters)
         else:
-            resistivity_val = "-"
+            resistivity_val = format_float(rho_float)
 
         nace, astm = classify_corrosion(resistivity_val)
 
@@ -163,7 +163,7 @@ def gpt_response_to_table(response):
             number,
             well_no,
             a_val,
-            r_val,
+            format_float(r_val),
             resistivity_val,
             nace,
             astm
@@ -178,21 +178,34 @@ def gpt_response_to_table(response):
         "Коррозионная агрессивность по NACE",
         "Коррозионная активность по ASTM"
     ])
-
     return df
 
-
+def analyze_missing_data(df):
+    missing_info = []
+    for row_idx, row in df.iterrows():
+        for col in df.columns:
+            val = str(row[col]).strip().lower()
+            if val in ["-", "nan", "", "none"]:
+                missing_info.append(f"🚫 Пропущено в строке {row_idx + 1}, колонка '{col}'")
+    return missing_info
 
 def style_table(df):
     def nace_color(val):
         return f"background-color: {corrosion_colors.get(val, '#ffffff')}"
-    styled = df.style.applymap(nace_color, subset=["Коррозионная агрессивность по NACE"])
-    return styled
+    def astm_color(val):
+        return f"background-color: {corrosion_colors.get(val, '#ffffff')}"
+    def missing_highlight(val):
+        if str(val).strip().lower() in ["-", "nan", "", "none"]:
+            return "background-color: #f0f0f0; color: #a00"
+        return ""
+    return df.style \
+        .applymap(nace_color, subset=["Коррозионная агрессивность по NACE"]) \
+        .applymap(astm_color, subset=["Коррозионная активность по ASTM"]) \
+        .applymap(missing_highlight)
 
 # === Интерфейс Streamlit ===
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
-st.title("Geotechnical Test Result Checker")
-
+st.title("🧪 Geotechnical Test Result Checker")
 
 lang = st.sidebar.selectbox("🌐 Выберите язык:", ["Русский", "O'zbek", "English"])
 lang_codes = {"Русский": "ru", "O'zbek": "uz", "English": "en"}
@@ -201,11 +214,10 @@ language_code = lang_codes[lang]
 model_choice = st.sidebar.selectbox(
     "🤖 Выберите модель Juru AI:",
     ["gpt-4-turbo", "gpt-3.5-turbo"],
-    index=0,
-    help="GPT-4 точнее, GPT-3.5 быстрее и дешевле"
+    index=0
 )
 
-st.markdown("Загрузите PDF-файл лабораторного протокола и выберите тип теста. GPT проверит его соответствие ASTM и покажет таблицу с анализом.")
+st.markdown("📄 Загрузите PDF лабораторного протокола и выберите тип теста. GPT проверит соответствие ASTM и покажет таблицу с анализом.")
 
 test_types = list(astm_standards.keys())
 tabs = st.tabs(test_types)
@@ -213,10 +225,10 @@ tabs = st.tabs(test_types)
 for i, test_name in enumerate(test_types):
     with tabs[i]:
         st.header(f"{test_name}")
-        uploaded_file = st.file_uploader(f"Загрузите PDF для {test_name}", type="pdf", key=test_name)
+        uploaded_file = st.file_uploader(f"📎 Загрузите PDF для {test_name}", type="pdf", key=test_name)
 
         if uploaded_file:
-            with st.spinner("📄 Обработка PDF..."):
+            with st.spinner("📖 Обработка PDF..."):
                 text = extract_text_from_pdf(uploaded_file)
                 st.success("✅ PDF успешно загружен и обработан.")
 
@@ -226,12 +238,29 @@ for i, test_name in enumerate(test_types):
 
             st.dataframe(style_table(df_result), use_container_width=True)
 
+            # 🔍 Анализ пропущенных значений
+            missing_entries = analyze_missing_data(df_result)
+            if missing_entries:
+                st.subheader("❗ Пропущенные данные:")
+                for msg in missing_entries:
+                    st.markdown(f"- {msg}")
+            else:
+                st.success("✅ Все значения присутствуют.")
+
+            # 📝 Показываем анализ GPT (если ниже таблицы есть)
+            if "---" in gpt_response:
+                st.subheader("🧠 Комментарии GPT:")
+                parts = gpt_response.strip().split("---")
+                if len(parts) > 1:
+                    st.text_area("📋 Анализ соответствия ASTM:", parts[-1].strip(), height=200)
+
+            # 📤 Скачивание
             excel_buffer = BytesIO()
             with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
                 df_result.to_excel(writer, index=False, sheet_name='GPT Analysis')
 
             st.download_button(
-                label="📊 Скачать Excel отчёт",
+                label="📊 Скачать Excel-отчёт",
                 data=excel_buffer,
                 file_name=f"{test_name.replace(' ', '_')}_GPT_Report.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
