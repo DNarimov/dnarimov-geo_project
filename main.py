@@ -193,28 +193,147 @@ def classify_corrosion(resistivity_ohm_m):
         return "Invalid", "Invalid"
 
 def ask_gpt_astm_analysis(test_name, extracted_text, model_name, language_code):
-    prompt = f'''
-From the report below for the "{test_name}" test:
-
-1. Extract ALL ERT rows (data-like).
-2. Create a table:
-- No. | Point | Electrode Spacing a (m) | Reading R (Ohm) | Resistivity ρ = 2πRa (Ohm·m) | NACE Class | ASTM Class
-3. Round numbers to 2 decimals. Write "-" if missing.
-4. After the table: list all missing or calculated values.
+    prompt = f"""
+You are an expert geotechnical assistant. Analyze the report below.
+1. Extract only relevant data rows for the test: \"{test_name}\".
+2. Create a clean markdown table with 7 columns:
+| № | Точка | a (м) | R (Ом) | ρ (Ом·м) | NACE | ASTM |
+3. Use '-' if a cell is empty.
+4. Do not explain anything outside the table.
+5. After the table, in plain text, list:
+   - Missing R values
+   - Auto-calculated ρ = 2πRa values
 Language: {language_code.upper()}
-
-\"\"\"{extracted_text}\"\"\"
-'''
+"""{extracted_text}"""
+"""
     try:
         response = client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
+            temperature=0.1,
             max_tokens=2000
         )
         return response.choices[0].message.content
     except Exception as e:
         return f"❌ GPT error: {e}"
+
+def gpt_response_to_table(response, lang_code):
+    lines = [line for line in response.splitlines() if line.strip().startswith("|") and "---" not in line]
+    data = []
+    for line in lines:
+        parts = [p.strip() for p in line.strip("| \n").split("|")]
+        if len(parts) < 5:
+            continue
+        number, point, a_raw, r_raw, rho_raw = parts[:5]
+        a_val = parse_distance_to_meters(a_raw)
+        a = format_float(a_val) if a_val else "-"
+        try: r_float = float(r_raw.replace(",", ".")) if r_raw != "-" else None
+        except: r_float = None
+        try: rho_float = float(rho_raw.replace(",", ".")) if rho_raw != "-" else None
+        except: rho_float = None
+        if (not rho_float or rho_float < 1) and r_float and a_val:
+            rho_calc = 2 * math.pi * r_float * a_val
+            rho = format_float(rho_calc)
+        else:
+            rho = format_float(rho_float)
+        nace, astm = classify_corrosion(rho)
+        nace = corrosion_labels[lang_code].get(nace, nace)
+        astm = corrosion_labels[lang_code].get(astm, astm)
+        data.append([number, point, a, format_float(r_raw), rho, nace, astm])
+    return pd.DataFrame(data, columns=column_translations[lang_code])
+
+def style_table(df):
+    def color(val): return f"background-color: {corrosion_colors.get(val, '')}"
+    def highlight(val): return "background-color: #fdd" if val in ["-", "nan", "", None] else ""
+    return df.style.applymap(color, subset=[df.columns[-2], df.columns[-1]]).applymap(highlight)
+
+def explain_missing_values(df, lang_code):
+    messages = []
+    for idx, row in df.iterrows():
+        well = row[1]
+        r = str(row[3]).strip().lower()
+        rho = str(row[4]).strip().lower()
+        if r in ["-", "", "nan", "none"]:
+            messages.append(f"{well} – {missing_explanations[lang_code]['R']}")
+        if rho in ["-", "", "nan", "none"]:
+            messages.append(f"{well} – {missing_explanations[lang_code]['ρ']}")
+    return messages
+
+# --- Main Loop ---
+for i, test_name in enumerate(test_types):
+    with tabs[i]:
+        st.header(test_name)
+        uploaded_file = st.file_uploader(f"{ui_texts['upload_file'][language_code]} {test_name}", type="pdf", key=f"file_{test_name}")
+        if uploaded_file:
+            with st.spinner(ui_texts["loading_pdf"][language_code]):
+                text = extract_text_from_pdf(uploaded_file)
+                st.success(ui_texts["pdf_loaded"][language_code])
+            gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice, language_code)
+            df_result = gpt_response_to_table(gpt_response, language_code)
+            st.dataframe(style_table(df_result), use_container_width=True)
+            missing_notes = explain_missing_values(df_result, language_code)
+            if missing_notes:
+                st.subheader(ui_texts["missing_notes"][language_code])
+                for note in missing_notes:
+                    st.markdown(f"- {note}")
+            missing = []
+            for row in df_result.itertuples(index=False):
+                for j, val in enumerate(row):
+                    if str(val).strip().lower() in ["-", "nan", "", "none"]:
+                        missing.append(f"❌ {df_result.columns[j]}: строка {row[0]}")
+            if missing:
+                st.subheader(ui_texts["missing_values"][language_code])
+                for m in missing:
+                    st.markdown(f"- {m}")
+            else:
+                st.success(ui_texts["all_present"][language_code])
+            comments = [l for l in gpt_response.splitlines() if "|" not in l and "---" not in l and l.strip()]
+            if comments:
+                st.subheader(ui_texts["comments_section"][language_code])
+                for c in comments:
+                    st.markdown(f"- {c}")
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+                df_result.to_excel(writer, index=False, sheet_name="GPT Analysis")
+            st.download_button(ui_texts["download_excel"][language_code], data=excel_buffer.getvalue(), file_name=f"{test_name}.xlsx")
+
+
+def gpt_response_to_table(response, lang_code):
+    lines = [line for line in response.splitlines() if line.strip().startswith("|") and "---" not in line]
+    data = []
+
+    for line in lines:
+        parts = [p.strip() for p in line.strip("| \n").split("|")]
+        if len(parts) < 5:
+            continue
+
+        number, point, a_raw, r_raw, rho_raw = parts[:5]
+
+        a_val = parse_distance_to_meters(a_raw)
+        a = format_float(a_val) if a_val else "-"
+
+        try: r_float = float(r_raw.replace(",", ".")) if r_raw != "-" else None
+        except: r_float = None
+
+        try: rho_float = float(rho_raw.replace(",", ".")) if rho_raw != "-" else None
+        except: rho_float = None
+
+        if (not rho_float or rho_float < 1) and r_float and a_val:
+            rho_calc = 2 * math.pi * r_float * a_val
+            rho = format_float(rho_calc)
+        else:
+            rho = format_float(rho_float)
+
+        nace, astm = classify_corrosion(rho)
+        nace = corrosion_labels[lang_code].get(nace, nace)
+        astm = corrosion_labels[lang_code].get(astm, astm)
+
+        data.append([
+            number, point, a, format_float(r_raw), rho, nace, astm
+        ])
+
+    return pd.DataFrame(data, columns=column_translations[lang_code])
+
 
 def gpt_response_to_table(response, lang_code):
     lines = [line for line in response.splitlines() if "|" in line and "№" not in line and "---" not in line]
