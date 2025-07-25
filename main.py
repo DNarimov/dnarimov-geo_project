@@ -30,14 +30,14 @@ ui_texts = {
         "uz": "💬 Juru AI izohlari:"
     },
     "missing_notes": {
-        "ru": "Дополнительные замечания:",
-        "en": "Additional Notes:",
-        "uz": "Qo‘shimcha eslatmalar:"
+        "ru": "📌 Дополнительные замечания:",
+        "en": "📌 Additional Notes:",
+        "uz": "📌 Qo‘shimcha eslatmalar:"
     },
     "missing_values": {
-        "ru": "⚠Пропущенные значения:",
-        "en": "⚠Missing values:",
-        "uz": "⚠Yetishmayotgan qiymatlar:"
+        "ru": "⚠️ Пропущенные значения:",
+        "en": "⚠️ Missing values:",
+        "uz": "⚠️ Yetishmayotgan qiymatlar:"
     },
     "all_present": {
         "ru": "✅ Все значения присутствуют.",
@@ -50,9 +50,9 @@ ui_texts = {
         "uz": "📥 Excel yuklab olish"
     },
     "upload_file": {
-        "ru": "Загрузите PDF для",
-        "en": "Upload PDF for",
-        "uz": "Ushbu test uchun PDF yuklang:"
+        "ru": "📎 Загрузите PDF для",
+        "en": "📎 Upload PDF for",
+        "uz": "📎 Ushbu test uchun PDF yuklang:"
     },
     "loading_pdf": {
         "ru": "Чтение PDF...",
@@ -66,19 +66,37 @@ ui_texts = {
     }
 }
 
-# --- Язык UI ---
+# --- Language Selection ---
 lang = st.sidebar.selectbox(
-    ui_texts["language_label"]["en"], ["Русский", "English", "O'zbek"]
+    ui_texts["language_label"]["en"],
+    ["Русский", "English", "O'zbek"],
+    key="language_selector"
 )
 lang_codes = {"Русский": "ru", "English": "en", "O'zbek": "uz"}
 language_code = lang_codes[lang]
 
-# --- Интерфейс ---
+# --- Set page ---
 st.set_page_config(ui_texts["page_title"][language_code], layout="wide")
 st.title(ui_texts["page_title"][language_code])
 st.markdown(ui_texts["upload_instruction"][language_code])
 
-# --- Конфигурации ---
+# --- ASTM Test Types ---
+astm_standards = {
+    "Electrical Resistivity Test (ERT)": "ASTM G57",
+    "Seismic Refraction Test (SRT)": "ASTM D5777",
+    "Atterberg Limit Test": "ASTM D4318",
+    "Sieve Analysis": "ASTM D6913",
+    "UCS Test - Soil": "ASTM D2166",
+    "UCS Test - Rock": "ASTM D7012",
+    "Oedometer Test": "ASTM D2435",
+    "Direct Shear Test": "ASTM D3080",
+    "Collapse Test": "ASTM D5333",
+    "California Bearing Ratio": "ASTM D1883",
+    "Proctor Test": "ASTM D698"
+}
+test_types = list(astm_standards.keys())
+
+# --- Corrosion Configs ---
 column_translations = {
     "ru": ["№ п/п", "№ Выработки", "Расстояние между электродами а, (м)", "Показание прибора R, (Ом)",
            "Удельное электрическое сопротивление ρ=2πRa Ом·м", "Коррозионная агрессивность по NACE",
@@ -126,21 +144,22 @@ corrosion_colors = {
     "Чрезвычайно коррозионный": "#ff6b6b", "Out of range": "#cccccc", "Invalid": "#e0e0e0"
 }
 
-astm_standards = {
-    "Electrical Resistivity Test (ERT)": "ASTM G57",
-    "Seismic Refraction Test (SRT)": "ASTM D5777",
-    "Atterberg Limit Test": "ASTM D4318",
-    "Sieve Analysis": "ASTM D6913",
-    "UCS Test - Soil": "ASTM D2166",
-    "UCS Test - Rock": "ASTM D7012",
-    "Oedometer Test": "ASTM D2435",
-    "Direct Shear Test": "ASTM D3080",
-    "Collapse Test": "ASTM D5333",
-    "California Bearing Ratio": "ASTM D1883",
-    "Proctor Test": "ASTM D698"
+missing_explanations = {
+    "ru": {
+        "R": "отсутствует значение R (показание прибора)",
+        "ρ": "отсутствует значение удельного сопротивления, программа рассчитала автоматически"
+    },
+    "en": {
+        "R": "missing value of R (instrument reading)",
+        "ρ": "missing resistivity value, calculated automatically by the program"
+    },
+    "uz": {
+        "R": "R qiymati yo‘q (asbob ko‘rsatmasi)",
+        "ρ": "Xususiy qarshilik yo‘q, dastur tomonidan hisoblangan"
+    }
 }
 
-# --- Утилиты ---
+# --- Utility Functions ---
 def extract_text_from_pdf(pdf_file):
     reader = PdfReader(pdf_file)
     return "".join([page.extract_text() or "" for page in reader.pages])
@@ -184,7 +203,7 @@ From the report below for the "{test_name}" test:
 4. After the table: list all missing or calculated values.
 Language: {language_code.upper()}
 
-"{extracted_text}"
+\"\"\"{extracted_text}\"\"\"
 '''
     try:
         response = client.chat.completions.create(
@@ -226,21 +245,6 @@ def style_table(df):
     def highlight(val): return "background-color: #fdd" if val in ["-", "nan", "", None] else ""
     return df.style.applymap(color, subset=[df.columns[-2], df.columns[-1]]).applymap(highlight)
 
-missing_explanations = {
-    "ru": {
-        "R": "отсутствует значение R (показание прибора)",
-        "ρ": "отсутствует значение удельного сопротивления, программа рассчитала автоматически"
-    },
-    "en": {
-        "R": "missing value of R (instrument reading)",
-        "ρ": "missing resistivity value, calculated automatically by the program"
-    },
-    "uz": {
-        "R": "R qiymati yo‘q (asbob ko‘rsatmasi)",
-        "ρ": "Xususiy qarshilik yo‘q, dastur tomonidan hisoblangan"
-    }
-}
-
 def explain_missing_values(df, lang_code):
     messages = []
     for idx, row in df.iterrows():
@@ -253,65 +257,50 @@ def explain_missing_values(df, lang_code):
             messages.append(f"{well} – {missing_explanations[lang_code]['ρ']}")
     return messages
 
-# --- Интерфейс ---
-st.set_page_config("Geotechnical Test Checker", layout="wide")
-st.title("Geotechnical Test Validator")
-
-lang = st.sidebar.selectbox("🌐 Language:", ["Русский", "English", "O'zbek"])
-lang_codes = {"Русский": "ru", "English": "en", "O'zbek": "uz"}
-language_code = lang_codes[lang]
-
-model_choice = st.sidebar.selectbox("🤖 Juru AI Model:", ["gpt-4-turbo", "gpt-3.5-turbo"])
-
-st.markdown("Upload a PDF report and select a test type to validate against ASTM.")
-
-test_types = list(astm_standards.keys())
+# --- Tabs per Test ---
+model_choice = st.sidebar.selectbox("🤖 Juru AI Model:", ["gpt-4-turbo", "gpt-3.5-turbo"], key="model_selector")
 tabs = st.tabs(test_types)
 
 for i, test_name in enumerate(test_types):
     with tabs[i]:
         st.header(test_name)
-        uploaded_file = st.file_uploader(f"📎 Upload PDF for {test_name}", type="pdf", key=test_name)
+        uploaded_file = st.file_uploader(f"{ui_texts['upload_file'][language_code]} {test_name}", type="pdf", key=f"file_{test_name}")
 
         if uploaded_file:
-            with st.spinner("Reading PDF..."):
+            with st.spinner(ui_texts["loading_pdf"][language_code]):
                 text = extract_text_from_pdf(uploaded_file)
-                st.success("✅ PDF loaded.")
+                st.success(ui_texts["pdf_loaded"][language_code])
 
             gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice, language_code)
             df_result = gpt_response_to_table(gpt_response, language_code)
             st.dataframe(style_table(df_result), use_container_width=True)
 
-            # Дополнительные замечания
             missing_notes = explain_missing_values(df_result, language_code)
             if missing_notes:
-                st.subheader("📌 Дополнительные замечания:")
+                st.subheader(ui_texts["missing_notes"][language_code])
                 for note in missing_notes:
                     st.markdown(f"- {note}")
 
-            # Пропущенные значения
             missing = []
             for row in df_result.itertuples(index=False):
-                for i, val in enumerate(row):
+                for j, val in enumerate(row):
                     if str(val).strip().lower() in ["-", "nan", "", "none"]:
-                        missing.append(f"❌ Пропущено в строке {row[0]}, колонка '{df_result.columns[i]}'")
+                        missing.append(f"❌ {df_result.columns[j]}: строка {row[0]}")
 
             if missing:
-                st.subheader("⚠️ Missing values:")
+                st.subheader(ui_texts["missing_values"][language_code])
                 for m in missing:
                     st.markdown(f"- {m}")
             else:
-                st.success("✅ All values present.")
+                st.success(ui_texts["all_present"][language_code])
 
-            # Комментарии GPT
             comments = [l for l in gpt_response.splitlines() if "|" not in l and "---" not in l and l.strip()]
             if comments:
-                st.subheader("💬 Juru AI Comments:")
+                st.subheader(ui_texts["comments_section"][language_code])
                 for c in comments:
                     st.markdown(f"- {c}")
 
-            # Excel Export
             excel_buffer = BytesIO()
             with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
                 df_result.to_excel(writer, index=False, sheet_name="GPT Analysis")
-            st.download_button("📥 Download Excel", data=excel_buffer.getvalue(), file_name=f"{test_name}.xlsx")
+            st.download_button(ui_texts["download_excel"][language_code], data=excel_buffer.getvalue(), file_name=f"{test_name}.xlsx")
