@@ -1,15 +1,15 @@
 import streamlit as st
 from pypdf import PdfReader
 import pandas as pd
-import io
-import os
 import math
 import re
 from openai import OpenAI
 from io import BytesIO
 
+# === OpenAI API ===
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
+# === ASTM стандарты ===
 astm_standards = {
     "Electrical Resistivity Test (ERT)": "ASTM G57",
     "Seismic Refraction Test (SRT)": "ASTM D5777",
@@ -24,6 +24,7 @@ astm_standards = {
     "Proctor Test": "ASTM D698"
 }
 
+# === Классы коррозии ===
 corrosion_classes = [
     (100, float('inf'), "Низкое", "Очень слабая коррозия"),
     (50.01, 100, "Слабо коррозионный", "Слабо коррозионный"),
@@ -45,6 +46,8 @@ corrosion_colors = {
     "Invalid": "#e0e0e0"
 }
 
+# === Вспомогательные функции ===
+
 def classify_corrosion(resistivity_ohm_m):
     try:
         val = float(resistivity_ohm_m)
@@ -55,18 +58,29 @@ def classify_corrosion(resistivity_ohm_m):
     except:
         return "Invalid", "Invalid"
 
-def extract_text_from_pdf(pdf_file):
-    reader = PdfReader(pdf_file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text() or ""
-    return text
-
 def format_float(val):
     try:
         return f"{round(float(str(val).replace(',', '.')), 2):.2f}"
     except:
         return "-"
+
+def parse_distance_to_meters(raw_value):
+    val = raw_value.lower().strip().replace(",", ".")
+    if re.search(r"(см|cm)", val):
+        number = re.findall(r"[\d\.]+", val)
+        if number:
+            return round(float(number[0]) / 100, 4)
+    try:
+        fval = float(val)
+        if fval > 10:
+            return round(fval / 100, 4)
+        return round(fval, 4)
+    except:
+        return None
+
+def extract_text_from_pdf(pdf_file):
+    reader = PdfReader(pdf_file)
+    return "".join([page.extract_text() or "" for page in reader.pages])
 
 def ask_gpt_astm_analysis(test_name, extracted_text, model_name, language_code):
     standard = astm_standards.get(test_name, "соответствующий ASTM стандарт")
@@ -106,23 +120,12 @@ Report:
     except Exception as e:
         return f"❌ GPT error: {e}"
 
-def parse_distance_to_meters(raw_value):
-    val = raw_value.lower().strip().replace(",", ".")
-    if re.search(r"(см|cm)", val):
-        number = re.findall(r"[\d\.]+", val)
-        if number:
-            return round(float(number[0]) / 100, 4)
-    try:
-        fval = float(val)
-        if fval > 10:
-            return round(fval / 100, 4)
-        return round(fval, 4)
-    except:
-        return None
-
 def gpt_response_to_table(response):
     lines = [line for line in response.strip().split("\n") if line.strip()]
-    table_lines = [line for line in lines if "|" in line and not re.match(r"^\s*-{2,}", line)]
+    table_lines = []
+    for line in lines:
+        if "|" in line and "№" not in line and "..." not in line.lower() and "---" not in line:
+            table_lines.append(line)
 
     data = []
     for line in table_lines:
@@ -130,20 +133,18 @@ def gpt_response_to_table(response):
         if len(parts) < 5:
             continue
 
-        number = parts[0] if len(parts) > 0 else "-"
-        well_no = parts[1] if len(parts) > 1 else "-"
-        a_raw = parts[2] if len(parts) > 2 else "-"
-        r_val = parts[3] if len(parts) > 3 else "-"
-        resistivity_val = parts[4] if len(parts) > 4 else "-"
+        number = parts[0]
+        well_no = parts[1]
+        a_raw = parts[2]
+        r_val = parts[3]
+        resistivity_val = parts[4]
 
         a_meters = parse_distance_to_meters(a_raw)
         a_val = format_float(a_meters) if a_meters is not None else "-"
-
         try:
             r_float = float(r_val.replace(",", "."))
         except:
             r_float = None
-
         try:
             rho_float = float(resistivity_val.replace(",", "."))
         except:
@@ -166,7 +167,7 @@ def gpt_response_to_table(response):
             astm
         ])
 
-    df = pd.DataFrame(data, columns=[
+    return pd.DataFrame(data, columns=[
         "№ п/п",
         "№ Выработки",
         "Расстояние между электродами а, (м)",
@@ -175,7 +176,6 @@ def gpt_response_to_table(response):
         "Коррозионная агрессивность по NACE",
         "Коррозионная активность по ASTM"
     ])
-    return df
 
 def analyze_missing_data(df):
     missing_info = []
@@ -200,7 +200,7 @@ def style_table(df):
         .applymap(astm_color, subset=["Коррозионная активность по ASTM"]) \
         .applymap(missing_highlight)
 
-# Интерфейс
+# === Интерфейс ===
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
 st.title("🧪 Geotechnical Test Result Checker")
 
@@ -235,7 +235,7 @@ for i, test_name in enumerate(test_types):
 
             st.dataframe(style_table(df_result), use_container_width=True)
 
-            # Пропущенные значения
+            # Анализ пропущенных данных
             missing_entries = analyze_missing_data(df_result)
             if missing_entries:
                 st.subheader("❗ Пропущенные данные:")
@@ -244,9 +244,16 @@ for i, test_name in enumerate(test_types):
             else:
                 st.success("✅ Все значения присутствуют.")
 
-            # Вывод комментариев GPT как текст
+            # Анализ ниже таблицы — без макросов
             extra_lines = gpt_response.strip().splitlines()
-            comment_lines = [line for line in extra_lines if not "|" in line and not re.match(r"^\s*№", line)]
+            comment_lines = [
+                line for line in extra_lines
+                if not "|" in line
+                and not re.match(r"^\s*№", line)
+                and not re.match(r"^\s*-{2,}", line)
+                and "..." not in line.lower()
+                and len(line.strip()) > 0
+            ]
             if comment_lines:
                 st.markdown("### 🧠 Комментарии от JURU AI:")
                 for line in comment_lines:
