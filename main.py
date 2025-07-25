@@ -8,6 +8,37 @@ from io import BytesIO
 
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
+# Перевод колонок по языку
+column_translations = {
+    "ru": [
+        "№ п/п",
+        "№ Выработки",
+        "Расстояние между электродами а, (м)",
+        "Показание прибора R, (Ом)",
+        "Удельное электрическое сопротивление ρ=2πRa Ом·м",
+        "Коррозионная агрессивность по NACE",
+        "Коррозионная активность по ASTM"
+    ],
+    "en": [
+        "No.",
+        "Test Point",
+        "Electrode Spacing a, (m)",
+        "Instrument Reading R (Ohm)",
+        "Resistivity ρ = 2πRa (Ohm·m)",
+        "Corrosion Class (NACE)",
+        "Corrosion Activity (ASTM)"
+    ],
+    "uz": [
+        "№",
+        "Ish joyi",
+        "Elektrodlar orasidagi masofa a, (m)",
+        "Asbob ko'rsatkichi R (Om)",
+        "Xususiy qarshilik ρ = 2πRa (Om·m)",
+        "Korroziya klassi (NACE)",
+        "Korroziya faolligi (ASTM)"
+    ]
+}
+
 astm_standards = {
     "Electrical Resistivity Test (ERT)": "ASTM G57",
     "Seismic Refraction Test (SRT)": "ASTM D5777",
@@ -84,7 +115,7 @@ You are a geotechnical assistant.
 
 From the report below for the "{test_name}" test, perform the following:
 
-1. Extract **ALL rows** from any tabular data related to this test, even if they seem repetitive or similar. Do not skip any rows. Your table must contain all ERT measurements as found in the file.
+1. Extract ALL rows from any tabular data related to this test. Do not skip repeated or similar values.
 
 2. Build a table with these columns:
    - № п/п
@@ -95,11 +126,12 @@ From the report below for the "{test_name}" test, perform the following:
    - Коррозионная агрессивность по NACE
    - Коррозионная активность по ASTM
 
-3. Use 2 decimal places for all numeric values. If a value is missing or unparseable — write "-".
+3. Use 2 decimal places for all numeric values. If missing — write "-".
 
-4. After the table, list:
-   - Any missing or invalid values (specify row/column).
-   - What ASTM-required parameters are missing or incomplete based on {standard}.
+4. Then give a plain-language summary:
+   - Which values were missing and auto-calculated.
+   - Which ASTM-required parameters were not present.
+   - Final conclusion: full compliance / partial compliance / major errors.
 
 Use language: {language_code.upper()}.
 Report:
@@ -116,11 +148,11 @@ Report:
     except Exception as e:
         return f"❌ GPT error: {e}"
 
-def gpt_response_to_table(response):
+def gpt_response_to_table(response, language_code):
     lines = [line for line in response.strip().split("\n") if line.strip()]
     table_lines = []
     for line in lines:
-        if "|" in line and "№" not in line and "..." not in line.lower() and "---" not in line:
+        if "|" in line and "№" not in line and "---" not in line and "..." not in line:
             table_lines.append(line)
 
     data = []
@@ -163,24 +195,7 @@ def gpt_response_to_table(response):
             astm
         ])
 
-    return pd.DataFrame(data, columns=[
-        "№ п/п",
-        "№ Выработки",
-        "Расстояние между электродами а, (м)",
-        "Показание прибора R, (Ом)",
-        "Удельное электрическое сопротивление ρ=2πRa Ом·м",
-        "Коррозионная агрессивность по NACE",
-        "Коррозионная активность по ASTM"
-    ])
-
-def analyze_missing_data(df):
-    missing_info = []
-    for row_idx, row in df.iterrows():
-        for col in df.columns:
-            val = str(row[col]).strip().lower()
-            if val in ["-", "nan", "", "none"]:
-                missing_info.append(f"🚫 Пропущено в строке {row_idx + 1}, колонка '{col}'")
-    return missing_info
+    return pd.DataFrame(data, columns=column_translations.get(language_code, column_translations["ru"]))
 
 def style_table(df):
     def nace_color(val):
@@ -192,77 +207,63 @@ def style_table(df):
             return "background-color: #f0f0f0; color: #a00"
         return ""
     return df.style \
-        .applymap(nace_color, subset=["Коррозионная агрессивность по NACE"]) \
-        .applymap(astm_color, subset=["Коррозионная активность по ASTM"]) \
+        .applymap(nace_color, subset=df.columns[-2:-1]) \
+        .applymap(astm_color, subset=df.columns[-1:]) \
         .applymap(missing_highlight)
 
 # === Интерфейс ===
 st.set_page_config(page_title="Geotechnical Test Validator", layout="wide")
-st.title("🧪 Geotechnical Test Result Checker")
+st.title("Geotechnical Test Result Checker")
 
 lang = st.sidebar.selectbox("🌐 Выберите язык:", ["Русский", "O'zbek", "English"])
 lang_codes = {"Русский": "ru", "O'zbek": "uz", "English": "en"}
 language_code = lang_codes[lang]
 
-model_choice = st.sidebar.selectbox(
-    "🤖 Выберите модель Juru AI:",
-    ["gpt-4-turbo", "gpt-3.5-turbo"],
-    index=0
-)
+model_choice = st.sidebar.selectbox("Модель Juru AI:", ["gpt-4-turbo", "gpt-3.5-turbo"], index=0)
 
 st.markdown("📄 Загрузите PDF лабораторного протокола и выберите тип теста. GPT проверит соответствие ASTM и покажет таблицу с анализом.")
 
-test_types = list(astm_standards.keys())
-tabs = st.tabs(test_types)
-
-for i, test_name in enumerate(test_types):
-    with tabs[i]:
-        st.header(f"{test_name}")
-        uploaded_file = st.file_uploader(f"📎 Загрузите PDF для {test_name}", type="pdf", key=test_name)
+for test_name in astm_standards:
+    with st.expander(test_name):
+        uploaded_file = st.file_uploader(f"Загрузите PDF для {test_name}", type="pdf", key=test_name)
 
         if uploaded_file:
-            with st.spinner("📖 Обработка PDF..."):
+            with st.spinner("Извлечение данных..."):
                 text = extract_text_from_pdf(uploaded_file)
-                st.success("✅ PDF успешно загружен и обработан.")
 
-            st.subheader("🤖 Анализ JURU AI")
+            st.subheader("Результаты анализа:")
             gpt_response = ask_gpt_astm_analysis(test_name, text, model_choice, language_code)
-            df_result = gpt_response_to_table(gpt_response)
+            df = gpt_response_to_table(gpt_response, language_code)
+            st.dataframe(style_table(df), use_container_width=True)
 
-            st.dataframe(style_table(df_result), use_container_width=True)
-
-            missing_entries = analyze_missing_data(df_result)
-            if missing_entries:
-                st.subheader("❗ Пропущенные данные:")
-                for msg in missing_entries:
-                    st.markdown(f"- {msg}")
-            else:
-                st.success("✅ Все значения присутствуют.")
-
-            # Комментарии GPT (ниже таблицы)
+            # Комментарии от GPT
             lines = gpt_response.strip().splitlines()
-            split_index = 0
-            for i, line in enumerate(lines):
-                if re.match(r"^\s*[-=]{3,}\s*$", line):
-                    split_index = i + 1
-                    break
-            comment_lines = lines[split_index:]
+            comment_lines = []
+            table_started = False
+            for line in lines:
+                if "|" in line and "№" in line:
+                    table_started = True
+                    continue
+                if table_started and "|" not in line and len(line.strip()) > 3:
+                    comment_lines.append(line.strip())
+
             comment_lines = [
                 line for line in comment_lines
-                if line.strip() and not re.match(r"^\s*[-=]{3,}$", line) and "..." not in line.lower()
+                if line and not line.startswith("|") and "===" not in line and "---" not in line
             ]
+
             if comment_lines:
-                st.markdown("### 🧠 Комментарии от JURU AI:")
+                st.markdown("### Комментарии от JURU AI:")
                 for line in comment_lines:
                     st.markdown(f"- {line}")
 
-            excel_buffer = BytesIO()
-            with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-                df_result.to_excel(writer, index=False, sheet_name='GPT Analysis')
+                st.markdown("### 📋 Итог по ERT согласно ASTM:")
+                for line in comment_lines:
+                    if any(x in line.lower() for x in ["summary", "итог", "compliance", "ошибка", "соответствие"]):
+                        st.markdown(f"> {line}")
 
-            st.download_button(
-                label="📊 Скачать Excel-отчёт",
-                data=excel_buffer,
-                file_name=f"{test_name.replace(' ', '_')}_GPT_Report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            # Скачать Excel
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False)
+            st.download_button("📥 Скачать Excel", data=buffer.getvalue(), file_name="ERT_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
